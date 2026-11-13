@@ -13,4 +13,5 @@ services:
     volumes:
       - ./data:/app/data
     shm_size: "1gb"  # Chromium в контейнере
+    init: true  # корректно завершает дочерние процессы (Chromium, Xvfb)
     restart: unless-stopped

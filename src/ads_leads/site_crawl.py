@@ -4,7 +4,12 @@
 Только httpx: сайты с JS-защитой (DDoS-Guard, Qrator, Cloudflare) помечаются как blocked.
 """
 
+import os
 import re
+import shutil
+import subprocess
+import sys
+import threading
 import time
 from collections import Counter
 from collections.abc import Callable
@@ -272,6 +277,35 @@ BROWSER_NAV_TIMEOUT_MS = 30_000
 BROWSER_CHALLENGE_WAIT_S = 20
 
 
+_XVFB_LOCK = threading.Lock()
+_XVFB: subprocess.Popen | None = None
+XVFB_DISPLAY = ":99"
+
+
+def _ensure_xvfb() -> str | None:
+    """Запускает Xvfb один раз на процесс (только Linux без DISPLAY). Возвращает номер дисплея или None."""
+    global _XVFB
+    with _XVFB_LOCK:
+        if _XVFB is not None and _XVFB.poll() is None:
+            return XVFB_DISPLAY
+        binary = shutil.which("Xvfb")
+        if not binary:
+            return None
+        _XVFB = subprocess.Popen(
+            [binary, XVFB_DISPLAY, "-screen", "0", "1366x900x24", "-nolisten", "tcp"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        lock_file = f"/tmp/.X11-unix/X{XVFB_DISPLAY[1:]}"
+        for _ in range(50):  # до 5 секунд ждём, пока дисплей поднимется
+            if os.path.exists(lock_file) or _XVFB.poll() is not None:
+                break
+            time.sleep(0.1)
+        if _XVFB.poll() is not None:  # упал (например, дисплей :99 уже занят чужим Xvfb)
+            _XVFB = None
+            return XVFB_DISPLAY if os.path.exists(lock_file) else None
+        return XVFB_DISPLAY
+
+
 class BrowserCrawler:
     """Один Chromium на всю задачу; на каждый сайт — новый контекст (свои cookies).
 
@@ -287,8 +321,16 @@ class BrowserCrawler:
 
         self._pw = sync_playwright().start()
         try:
+            headless, env = self.headless, None
+            if not headless and sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
+                display = _ensure_xvfb()  # сервер без экрана: поднимаем виртуальный дисплей
+                if display:
+                    env = {**os.environ, "DISPLAY": display}
+                else:
+                    headless = True  # Xvfb нет — работаем без окна (часть защит не пройдём)
             self._browser = self._pw.chromium.launch(
-                headless=self.headless, args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"]
+                headless=headless, env=env,
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"],
             )
         except Exception:
             self._pw.stop()

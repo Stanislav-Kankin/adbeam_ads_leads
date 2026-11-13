@@ -20,4 +20,5 @@ COPY src ./src
 RUN pip install --no-cache-dir .
 
 EXPOSE 8000
-CMD ["xvfb-run", "-a", "--server-args=-screen 0 1366x900x24", "ads-leads", "web"]
+# Xvfb для браузера приложение поднимает само, когда он нужен (xvfb-run как PID 1 зависает)
+CMD ["ads-leads", "web"]
