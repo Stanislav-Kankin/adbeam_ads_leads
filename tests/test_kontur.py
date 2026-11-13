@@ -121,6 +121,21 @@ def test_dossier(tmp_path, monkeypatch):
             assert "empty.ru" not in rows
             assert [r[0] for r in wb["Без контактов"].iter_rows(min_row=2, values_only=True)] == ["empty.ru"]
             assert c.get("/companies/dossier.xlsx").status_code == 200
+
+            # отбор: santeh.ru берём, mailonly.ru не берём
+            with db.get_engine().begin() as conn:
+                ids = dict(conn.exec_driver_sql("select domain, id from companies").fetchall())
+            c.post(f"/companies/{ids['santeh.ru']}/pick", data={"value": "yes", "next": "/niches/1"})
+            c.post(f"/companies/{ids['mailonly.ru']}/pick", data={"value": "no", "next": "/niches/1"})
+            page = c.get("/niches/1?f5=yes").text.split('id="step-5"')[1]
+            assert "отобрано 1" in page and "Скачать шорт-лист (1)" in page and "santeh.ru" in page
+            wb = openpyxl.load_workbook(io.BytesIO(c.get("/niches/1/dossier.xlsx").content))
+            assert "Не берём" in wb.sheetnames
+            assert [r[0] for r in wb["Не берём"].iter_rows(min_row=2, values_only=True)] == ["mailonly.ru"]
+            assert "mailonly.ru" not in [r[0] for r in wb["Досье"].iter_rows(min_row=2, values_only=True)]
+            short = openpyxl.load_workbook(io.BytesIO(c.get("/niches/1/shortlist.xlsx").content))
+            assert [r[0] for r in short["Шорт-лист"].iter_rows(min_row=2, values_only=True)] == ["santeh.ru"]
+            assert c.get("/companies/shortlist.xlsx").status_code == 200
     finally:
         db.get_engine.cache_clear()
         config.get_settings.cache_clear()

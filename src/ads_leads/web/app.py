@@ -21,12 +21,12 @@ from sqlalchemy.orm import Session, selectinload
 from ads_leads import __version__, auth, jobs
 from ads_leads.config import get_settings
 from ads_leads.db import get_session, init_db
-from ads_leads.export import build_dossier, collect_rows, priority
+from ads_leads.export import MIN_BUDGET, build_dossier, collect_rows, priority, private_mobiles
 from ads_leads.kontur import KonturFormatError, build_inn_xlsx, parse_kontur_xlsx
 from ads_leads.domains import normalize_domain
 from ads_leads.models import Company, Job, Niche, NicheQuery, Source
 from ads_leads.regions import DEFAULT_REGIONS, YANDEX_BASES, parse_regions, region_names
-from ads_leads.site_crawl import END_TO_END, SIGNAL_NAMES, inn_is_valid
+from ads_leads.site_crawl import CALLTRACKING, E2E_ANALYTICS, SIGNAL_NAMES, inn_is_valid
 
 WEB_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=WEB_DIR / "templates")
@@ -219,28 +219,41 @@ SITE_FILTERS = {
     "all": ("Все", lambda c: True),
     "inn": ("С ИНН", lambda c: bool(c.inn)),
     "noinn": ("Без ИНН", lambda c: c.site_checked_at is not None and not c.inn),
-    "e2e": ("Сквозная аналитика", lambda c: bool(set(c.signal_list) & END_TO_END)),
+    "e2e": ("Сквозная аналитика", lambda c: bool(set(c.signal_list) & E2E_ANALYTICS)),
+    "ct": ("Коллтрекинг", lambda c: bool(set(c.signal_list) & CALLTRACKING)),
     "blocked": ("Защита от ботов", lambda c: c.site_status == "blocked"),
     "down": ("Не открылись", lambda c: c.site_status == "down"),
 }
 
 
+# Отбор в шорт-лист (шаг 5): кандидаты A/B, по которым ещё не решили, — первыми
+PICK_FILTERS = {
+    "todo": ("A и B, не решено", lambda r: r.company.pick is None and priority(r.company)[0] in "AB"),
+    "yes": ("Берём", lambda r: r.company.pick == "yes"),
+    "no": ("Не берём", lambda r: r.company.pick == "no"),
+    "all": ("Все", lambda r: True),
+}
+
+
 @app.get("/niches/{niche_id}", response_class=HTMLResponse)
 def niche_page(request: Request, db: DbSession, niche_id: int, per: int = 20, p2: int = 1, p3: int = 1,
-               f3: str = "all", p4: int = 1):
+               f3: str = "all", p4: int = 1, p5: int = 1, f5: str = "todo"):
     niche = _get_niche(db, niche_id)
     advertisers, excluded = _advertiser_rows(niche)
     checked = [r for r in advertisers if r["company"].site_checked_at]
     with_inn = sum(1 for r in advertisers if r["company"].inn)
-    dossier_main, dossier_rest = collect_rows([niche])
+    dossier_main, dossier_rest, dossier_rejected = collect_rows([niche])
     dossier_prio = [priority(r.company)[0] for r in dossier_main]
+    candidates = dossier_main + dossier_rest + dossier_rejected
+    f5 = f5 if f5 in PICK_FILTERS else "todo"
     steps = [
         {"n": 1, "title": "Запросы", "count": len(niche.queries), "ready": True},
         {"n": 2, "title": "Рекламодатели", "count": len(advertisers), "ready": True},
         {"n": 3, "title": "Сайты: ИНН и сигналы", "count": with_inn, "ready": True},
         {"n": 4, "title": "Контур.Продажи", "count": sum(1 for r in advertisers if r["company"].kontur_loaded_at),
          "ready": True},
-        {"n": 5, "title": "Досье", "count": len(dossier_main), "ready": True},
+        {"n": 5, "title": "Досье и отбор", "count": sum(1 for r in candidates if r.company.pick == "yes"),
+         "ready": True},
     ]
     return _render(
         request, "niche.html", niche=niche, steps=steps, excluded=excluded,
@@ -257,8 +270,13 @@ def niche_page(request: Request, db: DbSession, niche_id: int, per: int = 20, p2
         inns_for_kontur=_inns_for_kontur(advertisers),
         dossier={"total": len(dossier_main), "rest": len(dossier_rest),
                  "A": dossier_prio.count("A"), "B": dossier_prio.count("B"), "C": dossier_prio.count("C"),
-                 "no_inn": sum(1 for r in dossier_main if not r.company.inn)},
-        per_options=PER_PAGE_OPTIONS, signal_names=SIGNAL_NAMES, end_to_end=END_TO_END,
+                 "no_inn": sum(1 for r in dossier_main if not r.company.inn),
+                 "picked": sum(1 for r in candidates if r.company.pick == "yes")},
+        pick_page=_paginate([r for r in candidates if PICK_FILTERS[f5][1](r)], p5, per), f5=f5,
+        pick_filters=[(k, label, sum(1 for r in candidates if fn(r))) for k, (label, fn) in PICK_FILTERS.items()],
+        priority=priority, private_mobiles=private_mobiles, min_budget=MIN_BUDGET,
+        per_options=PER_PAGE_OPTIONS, signal_names=SIGNAL_NAMES, e2e_signals=E2E_ANALYTICS,
+        calltracking_signals=CALLTRACKING,
     )
 
 
@@ -402,6 +420,35 @@ def niche_dossier(db: DbSession, niche_id: int):
     niche = _get_niche(db, niche_id)
     stamp = datetime.now().strftime("%Y-%m-%d")
     return _xlsx_response(build_dossier([niche], f"Ниша «{niche.name}»"), f"Досье — {niche.name} — {stamp}.xlsx")
+
+
+@app.get("/niches/{niche_id}/shortlist.xlsx")
+def niche_shortlist(db: DbSession, niche_id: int):
+    """Шаг 5: только отобранные «берём» — список для поиска ЛПР."""
+    niche = _get_niche(db, niche_id)
+    stamp = datetime.now().strftime("%Y-%m-%d")
+    return _xlsx_response(build_dossier([niche], f"Ниша «{niche.name}»", only_picked=True),
+                          f"Шорт-лист — {niche.name} — {stamp}.xlsx")
+
+
+@app.get("/companies/shortlist.xlsx")
+def all_shortlist(db: DbSession):
+    niches = list(db.scalars(select(Niche).order_by(Niche.name)))
+    stamp = datetime.now().strftime("%Y-%m-%d")
+    return _xlsx_response(build_dossier(niches, "Все ниши", only_picked=True), f"Шорт-лист — все ниши — {stamp}.xlsx")
+
+
+@app.post("/companies/{company_id}/pick")
+def set_pick(request: Request, db: DbSession, company_id: int, value: Annotated[str, Form()],
+             next: Annotated[str, Form()] = "/"):
+    """Отбор в шорт-лист: yes — берём, no — не берём (уходит на лист «Не берём»), иное — сбросить."""
+    company = db.get(Company, company_id)
+    if company is None:
+        raise HTTPException(404)
+    company.pick = value if value in ("yes", "no") else None
+    company.pick_by, company.pick_at = request.state.user, datetime.now()
+    db.commit()
+    return RedirectResponse(_safe_next(next) + "#step-5", status_code=303)
 
 
 @app.get("/companies/dossier.xlsx")

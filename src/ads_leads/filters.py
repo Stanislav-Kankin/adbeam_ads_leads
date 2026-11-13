@@ -30,7 +30,9 @@ EXCLUDED_DOMAINS: dict[str, str] = {
     "apple.com": "не по теме", "appsflyer.com": "не по теме", "tilda.ws": "конструктор сайтов",
     "tilda.cc": "конструктор сайтов", "made-in-china.com": "международная площадка", "alibaba.com": "международная площадка",
     "amazon.com": "международная площадка", "ebay.com": "международная площадка", "temu.com": "маркетплейс",
-    "joom.com": "маркетплейс", "aliexpress.us": "маркетплейс",
+    "joom.com": "маркетплейс", "aliexpress.us": "маркетплейс", "adjust.com": "не по теме",
+    "onlinetrade.ru": "маркетплейс", "profi.ru": "сервис услуг", "youdo.com": "сервис услуг",
+    "uslugio.com": "сервис услуг", "flowwow.com": "маркетплейс", "kazanexpress.com": "маркетплейс",
 }
 
 

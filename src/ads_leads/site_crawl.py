@@ -65,11 +65,16 @@ SIGNALS: list[tuple[str, str, tuple[str, ...]]] = [
     ("callibri", "Callibri", ("callibri",)),
     ("mango", "Mango Office", ("mango-office", "mango.office")),
     ("alloka", "Alloka", ("alloka",)),
+    ("alytics", "Alytics", ("alytics",)),
     ("bitrix24", "Битрикс24 (CRM)", ("bitrix24", "b24-")),
     ("amocrm", "amoCRM", ("amocrm",)),
 ]
 SIGNAL_NAMES = {code: name for code, name, _ in SIGNALS}
-END_TO_END = {"roistat", "calltouch", "comagic", "callibri", "mango", "alloka"}  # сквозная аналитика/коллтрекинг
+# Сквозная аналитика: расходы → заявки → продажи. Это сильный признак: подрядчиков есть чем сравнивать.
+E2E_ANALYTICS = {"roistat", "alytics"}
+# Коллтрекинг: считает звонки по источникам. Признак слабее, но тоже помогает сравнить подрядчиков.
+CALLTRACKING = {"calltouch", "comagic", "callibri", "mango", "alloka"}
+TRACKING = E2E_ANALYTICS | CALLTRACKING
 METRIKA_ID_RE = re.compile(r"(?:ym\(\s*|metrika/tag\.js\?id=|watch/|counter_id[\"']?\s*[:=]\s*)(\d{6,9})")
 AW_RE = re.compile(r"\bAW-(\d{9,11})\b")
 SOCIAL_HOSTS = ("vk.com", "t.me", "ok.ru", "youtube.com", "rutube.ru", "dzen.ru")
@@ -175,6 +180,16 @@ def clean_phones(value: str | None) -> list[str]:
             continue
         out.append(p.strip())
     return out
+
+
+def is_mobile(phone: str) -> bool:
+    """Российский мобильный: +7 9xx. Городские и 8-800 — общие линии компании."""
+    digits = re.sub(r"\D", "", phone)
+    return len(digits) == 11 and digits[0] in "78" and digits[1] == "9"
+
+
+def phone_key(phone: str) -> str:
+    return re.sub(r"\D", "", phone)[-10:]
 
 
 def _unique(values: list[str], limit: int) -> list[str]:

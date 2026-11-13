@@ -18,6 +18,8 @@
 {% endif %}
 {% endmacro %}
 
+{% macro signals(c) %}{% for s in c.signal_list %}<span class="sig {{ 'hot' if s in e2e_signals else 'warm' if s in calltracking_signals }}" title="{{ 'Сквозная аналитика' if s in e2e_signals else 'Коллтрекинг' if s in calltracking_signals }}">{{ signal_names.get(s, s) }}</span>{% endfor %}{% endmacro %}
+
 {% block content %}
 <div class="page-head">
   <div class="eyebrow"><a href="/" style="text-decoration:none">Ниши</a> · {{ niche.name }}</div>
@@ -193,14 +195,14 @@
         {% for p in c.phone_list[:2] %}<span class="nowrap">{{ p }}</span><br>{% endfor %}
         {% for e in c.email_list[:2] %}<a href="mailto:{{ e }}">{{ e }}</a><br>{% endfor %}
       </td>
-      <td>{% for s in c.signal_list %}<span class="sig {{ 'hot' if s in end_to_end }}" title="{{ 'Сквозная аналитика / коллтрекинг' if s in end_to_end }}">{{ signal_names.get(s, s) }}</span>{% endfor %}</td>
+      <td>{{ signals(c) }}</td>
     </tr>
     {% endfor %}
     </tbody>
   </table>
   </div>
   {{ pager(site_page, 'p3', 'step-3', per_options, request) }}
-  <p class="muted small" style="margin:10px 0 0"><span class="sig hot">жёлтым</span> — сквозная аналитика и коллтрекинг: компании уже считают эффективность рекламы, им проще сравнить двух подрядчиков.</p>
+  <p class="muted small" style="margin:10px 0 0"><span class="sig hot">жёлтым</span> — сквозная аналитика (связывает рекламу с продажами), <span class="sig warm">светлым</span> — коллтрекинг (считает звонки). Компании уже измеряют рекламу, им проще сравнить двух подрядчиков.</p>
   {% endif %}
 </div>
 
@@ -266,8 +268,8 @@
 {# ---------- Шаг 5 — досье ---------- #}
 <div class="card step" id="step-5">
   <div class="step-head"><span class="stepnum">5</span>
-    <div class="grow"><h2>Досье</h2><p class="muted small">Итоговый Excel: сайт, компания, почты и телефоны (с сайта и из Контура), траты на Директ, сигналы, выручка, прибыль, ниша, приоритет.</p></div>
-    <span class="badge info">{{ dossier.total }} компаний</span>
+    <div class="grow"><h2>Досье и отбор</h2><p class="muted small">Итоговый Excel по нише и шорт-лист: компании, которые берём в персональный заход (цель — около 50 на нишу).</p></div>
+    <span class="badge info">отобрано {{ dossier.picked }} · в досье {{ dossier.total }}</span>
   </div>
   {% if dossier.total %}
   <div class="row" style="gap:10px;margin-bottom:14px">
@@ -276,8 +278,53 @@
     <span class="sig">C · {{ dossier.C }}</span>
     <span class="muted small">из них без ИНН, но с контактами: {{ dossier.no_inn }}{% if dossier.rest %} · без контактов и ИНН: {{ dossier.rest }} (отдельный лист){% endif %}</span>
   </div>
-  <a class="btn" href="/niches/{{ niche.id }}/dossier.xlsx">Скачать досье (Excel)</a>
-  <p class="muted small" style="margin:12px 0 0">A — выручка от 500 млн ₽ и сквозная аналитика; B — выручка от 200 млн ₽ (или нет данных Контура, но есть аналитика); C — остальные. Без данных Контура приоритет предварительный.</p>
+  <div class="row">
+    <a class="btn" href="/niches/{{ niche.id }}/dossier.xlsx">Скачать досье (Excel)</a>
+    {% if dossier.picked %}<a class="btn dark" href="/niches/{{ niche.id }}/shortlist.xlsx">Скачать шорт-лист ({{ dossier.picked }})</a>{% endif %}
+  </div>
+  <p class="muted small" style="margin:12px 0 0">A — Директ от {{ min_budget|num }} ₽/мес и сквозная аналитика или коллтрекинг, выручка от 200 млн ₽ (или неизвестна); B — Директ от {{ min_budget|num }} ₽/мес без аналитики или с выручкой меньше 200 млн; C — меньше {{ min_budget|num }} ₽/мес, нет оценки трат или компания не действующая.</p>
+
+  <h3 style="margin:22px 0 4px">Отбор в шорт-лист</h3>
+  <p class="muted small" style="margin:0 0 10px">Откройте сайт, решите «берём / не берём». «Не берём» уходит на отдельный лист досье — так же убирается мусор (сервисы, маркетплейсы), который не отсеялся сам.</p>
+  <div class="row filters">
+    {% for key, label, cnt in pick_filters %}
+    <a class="pg {{ 'on' if key == f5 }}" href="{{ page_url(request, 'p5', 1, pick_page.per, 'step-5', f5=key) }}">{{ label }} · {{ cnt }}</a>
+    {% endfor %}
+  </div>
+  {% if pick_page.rows %}
+  <div class="table-wrap" style="margin-top:12px">
+  <table>
+    <thead><tr><th>#</th><th>Компания</th><th class="num">Директ, ₽/мес*</th><th class="num">Выручка, млн ₽</th>
+      <th>Сигналы</th><th>Руководитель</th><th>Приоритет</th><th>Отбор</th></tr></thead>
+    <tbody>
+    {% for r in pick_page.rows %}{% set c = r.company %}{% set pr = priority(c) %}
+    <tr>
+      <td class="muted small">{{ pick_page.offset + loop.index }}</td>
+      <td class="cell-list"><a class="domain" href="https://{{ c.domain }}" target="_blank" rel="noopener">{{ c.domain }}</a><br>
+        {{ c.kontur_name or c.legal_name or '' }}{% if c.inn %}<br><span class="muted">ИНН {{ c.inn }}</span>{% endif %}</td>
+      <td class="num"><b>{{ c.ad_budget_month|num }}</b></td>
+      <td class="num">{{ (c.revenue / 1e6)|round|int|num if c.revenue is not none else '—' }}</td>
+      <td>{{ signals(c) }}</td>
+      <td class="cell-list">{{ c.director_name or '—' }}{% for p in private_mobiles(c)[:2] %}<br><span class="nowrap" title="Мобильный из Контура, которого нет на сайте">📱 {{ p }}</span>{% endfor %}</td>
+      <td><span class="sig prio-{{ pr[0] }}" title="{{ pr[1] }}">{{ pr[0] }}</span></td>
+      <td>
+        <form method="post" action="/companies/{{ c.id }}/pick" class="row" style="gap:4px;flex-wrap:nowrap">
+          <input type="hidden" name="next" value="{{ request.url.path }}?{{ request.url.query }}">
+          {% if c.pick == 'yes' %}<span class="badge ok">берём</span><button class="ghost sm" name="value" value="">×</button>
+          {% elif c.pick == 'no' %}<span class="badge err">не берём</span><button class="ghost sm" name="value" value="">×</button>
+          {% else %}<button class="sm" name="value" value="yes">Берём</button><button class="ghost sm" name="value" value="no">Нет</button>{% endif %}
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {{ pager(pick_page, 'p5', 'step-5', per_options, request) }}
+  <p class="muted small" style="margin:10px 0 0">* Оценка Keys.so, весь контекст домена. 📱 — мобильный из Контура, которого нет на сайте: возможно, личный номер руководителя.</p>
+  {% else %}
+  <div class="empty" style="margin-top:12px">В этом фильтре пусто.</div>
+  {% endif %}
   {% else %}
   <div class="empty">Досье появится после шагов 2–3: нужны компании с ИНН или контактами.</div>
   {% endif %}

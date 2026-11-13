@@ -118,6 +118,11 @@ class Company(Base):
     employees: Mapped[int | None] = mapped_column()
     kontur_loaded_at: Mapped[datetime | None] = mapped_column(DateTime)
 
+    # Ручной отбор в шорт-лист для персонального захода
+    pick: Mapped[str | None] = mapped_column(String(10))  # yes | no | None (не решено)
+    pick_by: Mapped[str | None] = mapped_column(String(100))
+    pick_at: Mapped[datetime | None] = mapped_column(DateTime)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 

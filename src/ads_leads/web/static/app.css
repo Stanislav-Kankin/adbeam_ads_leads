@@ -136,6 +136,8 @@ dialog.regions .d-foot { padding: 16px 26px 22px; display: flex; gap: 10px; just
 .sig { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; margin: 1px 2px 1px 0;
   background: #edf0f8; color: var(--navy); white-space: nowrap; }
 .sig.hot { background: var(--yellow); color: var(--navy); }
+.sig.warm { background: var(--yellow-soft); color: #8a6100; }
+.sig.prio-A { background: #d9f2e3; } .sig.prio-B { background: #fff2cc; }
 .cell-list { font-size: 13px; line-height: 1.45; }
 
 /* шаг 4 */
