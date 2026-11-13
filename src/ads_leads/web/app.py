@@ -4,12 +4,14 @@
 запросы → рекламодатели → сайты и ИНН → Контур.Продажи → досье.
 """
 
+import base64
+import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -31,6 +33,27 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="AdBeam Leads", version=__version__, lifespan=lifespan)
+
+
+@app.middleware("http")
+async def basic_auth(request: Request, call_next):
+    """Вход по логину и паролю, если в настройках задан ADS_LEADS_AUTH_PASSWORD."""
+    settings = get_settings()
+    if not settings.auth_password or request.url.path == "/health":
+        return await call_next(request)
+    header = request.headers.get("authorization", "")
+    if header.lower().startswith("basic "):
+        try:
+            user, _, password = base64.b64decode(header[6:]).decode("utf-8").partition(":")
+        except (ValueError, UnicodeDecodeError):
+            user, password = "", ""
+        if secrets.compare_digest(user.encode(), settings.auth_user.encode()) and secrets.compare_digest(
+            password.encode(), settings.auth_password.encode()
+        ):
+            return await call_next(request)
+    return Response(
+        "Нужен логин и пароль", status_code=401, headers={"WWW-Authenticate": 'Basic realm="AdBeam Leads"'}
+    )
 
 
 def _render(request: Request, name: str, **context) -> HTMLResponse:

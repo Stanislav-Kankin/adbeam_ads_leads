@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8000
 
+    # Вход по логину и паролю (HTTP Basic). Пустой пароль → без входа (локальный запуск).
+    auth_user: str = "adbeam"
+    auth_password: str = ""
+
     keyso_api_token: str = ""
     keyso_base: str = "msk"  # регион базы Keys.so (Москва)
 

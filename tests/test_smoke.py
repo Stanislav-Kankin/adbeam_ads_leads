@@ -52,3 +52,23 @@ def test_niche_flow(client):
     assert 'href="https://santeh.ru"' in client.get("/companies").text
 
     assert client.get("/niches/999").status_code == 404
+
+
+def test_basic_auth(tmp_path, monkeypatch):
+    monkeypatch.setenv("ADS_LEADS_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ADS_LEADS_AUTH_PASSWORD", "secret")
+    from ads_leads import config, db
+
+    config.get_settings.cache_clear()
+    db.get_engine.cache_clear()
+    from ads_leads.web.app import app
+
+    try:
+        with TestClient(app) as c:
+            assert c.get("/health").status_code == 200  # проверка живости без пароля
+            assert c.get("/").status_code == 401
+            assert c.get("/", auth=("adbeam", "wrong")).status_code == 401
+            assert c.get("/", auth=("adbeam", "secret")).status_code == 200
+    finally:
+        db.get_engine.cache_clear()
+        config.get_settings.cache_clear()
