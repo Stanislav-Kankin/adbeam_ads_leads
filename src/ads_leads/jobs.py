@@ -16,7 +16,7 @@ from ads_leads.filters import exclusion_reason
 from ads_leads.keyso import KeysoClient, KeysoError
 from ads_leads.models import Company, Job, Niche, NicheAdvertiser, Source
 from ads_leads.regions import YANDEX_BASES
-from ads_leads.site_crawl import SiteResult, crawl_site
+from ads_leads.site_crawl import BrowserCrawler, SiteResult, browser_available, crawl_site
 
 log = logging.getLogger(__name__)
 
@@ -131,9 +131,12 @@ def _collect(db: Session, job: Job, niche: Niche, queries: list[str], bases: lis
     return len(found), len(excluded)
 
 
-def crawl_sites(job_id: int, crawler: Callable[[str], SiteResult] | None = None, only_new: bool = True) -> None:
+def crawl_sites(job_id: int, crawler: Callable[[str], SiteResult] | None = None, only_new: bool = True,
+                use_browser: bool | None = None) -> None:
     """Шаг 3: обойти сайты рекламодателей ниши (параллельно), сохранить ИНН, контакты, сигналы."""
     crawl = crawler or crawl_site
+    if use_browser is None:
+        use_browser = crawler is None and get_settings().browser_fallback
     with _session() as db:
         job = db.get(Job, job_id)
         niche = db.get(Niche, job.niche_id)
@@ -141,7 +144,8 @@ def crawl_sites(job_id: int, crawler: Callable[[str], SiteResult] | None = None,
             excluded = {a.company_id for a in niche.advertisers if a.excluded}
             companies = [c for c in niche.companies if c.id not in excluded]
             if only_new:
-                companies = [c for c in companies if c.site_checked_at is None]
+                # новые + те, что в прошлый раз упёрлись в защиту или не открылись
+                companies = [c for c in companies if c.site_checked_at is None or c.site_status in ("blocked", "down")]
             if not companies:
                 _update(db, job, status="done", progress=100, message="Все сайты уже проверены")
                 return
@@ -162,7 +166,12 @@ def crawl_sites(job_id: int, crawler: Callable[[str], SiteResult] | None = None,
                     stats["inn"] += bool(res.inn)
                     db.commit()
                     _update(db, job, progress=int(done / total * 100), message=f"Проверено {done} из {total}: {domain}")
+            blocked = [c for c in by_domain.values() if c.site_status == "blocked"]
+            if blocked and use_browser and browser_available():
+                stats = _browser_pass(db, job, blocked, stats)
             msg = f"Готово: {total} сайтов, ИНН найден у {stats['inn']}"
+            if stats["browser_ok"]:
+                msg += f" (из них {stats['browser_ok']} через браузер в обход защиты)"
             if stats["blocked"]:
                 msg += f", {stats['blocked']} с защитой от ботов"
             if stats["down"]:
@@ -172,6 +181,31 @@ def crawl_sites(job_id: int, crawler: Callable[[str], SiteResult] | None = None,
             log.exception("Задача %s упала", job_id)
             db.rollback()
             _update(db, job, status="error", message=str(exc) or exc.__class__.__name__)
+
+
+def _browser_pass(db: Session, job: Job, companies: list[Company], stats: Counter) -> Counter:
+    """Сайты с JS-защитой — повторно через настоящий браузер (по одному, ~15–25 с на сайт)."""
+    n = len(companies)
+    try:
+        with BrowserCrawler() as browser:
+            for i, company in enumerate(companies, 1):
+                _update(db, job, progress=int(i / n * 100),
+                        message=f"Обхожу защиту через браузер: {i} из {n} — {company.domain}")
+                try:
+                    res = browser.crawl(company.domain)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("Браузер %s: %s", company.domain, exc)
+                    continue
+                if res.status == "ok":
+                    _apply_site(company, res)
+                    stats["blocked"] -= 1
+                    stats["ok"] += 1
+                    stats["inn"] += bool(res.inn)
+                    stats["browser_ok"] += 1
+                    db.commit()
+    except Exception as exc:  # noqa: BLE001 — нет браузера/дисплея: оставляем результат обычного обхода
+        log.warning("Браузер недоступен: %s", exc)
+    return stats
 
 
 def _apply_site(company: Company, res: SiteResult) -> None:

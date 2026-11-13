@@ -148,9 +148,9 @@
     {% elif crawling %}
       <button disabled>Идёт проверка…</button>
     {% else %}
-      <button>{{ 'Проверить новые сайты' if checked_total else 'Проверить сайты' }}</button>
+      <button>{{ 'Проверить новые и заблокированные' if checked_total else 'Проверить сайты' }}</button>
       {% if checked_total %}<label class="small muted row" style="gap:6px"><input type="checkbox" name="recheck" value="1"> перепроверить все {{ advertisers_total }}</label>{% endif %}
-      <span class="muted small">≈ 1–2 секунды на сайт, 8 сайтов параллельно.</span>
+      <span class="muted small">≈ 1–2 с на сайт, 8 параллельно; сайты с защитой — через браузер, ≈ 20 с каждый.</span>
     {% endif %}
   </form>
   {{ job_box(crawl_job, 'step-3') }}

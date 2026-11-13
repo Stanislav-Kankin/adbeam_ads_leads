@@ -1,12 +1,21 @@
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
-    ADS_LEADS_HOST=0.0.0.0 ADS_LEADS_DATA_DIR=/app/data
+    ADS_LEADS_HOST=0.0.0.0 ADS_LEADS_DATA_DIR=/app/data \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
+# 1) Chromium для обхода JS-защиты сайтов + виртуальный дисплей (браузер «с окном» проходит больше защит).
+#    Отдельный слой до копирования кода: кэшируется и не пересобирается при каждом деплое.
+RUN pip install --no-cache-dir "playwright>=1.52,<2.0" \
+    && python -m playwright install --with-deps chromium \
+    && apt-get update && apt-get install -y --no-install-recommends xvfb xauth fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2) Приложение
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src ./src
 RUN pip install --no-cache-dir .
 
 EXPOSE 8000
-CMD ["ads-leads", "web"]
+CMD ["xvfb-run", "-a", "--server-args=-screen 0 1366x900x24", "ads-leads", "web"]

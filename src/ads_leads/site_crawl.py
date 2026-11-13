@@ -5,7 +5,9 @@
 """
 
 import re
+import time
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlparse, urlunparse
 
@@ -26,7 +28,9 @@ HEADERS = {
 }
 BLOCK_STATUSES = {401, 403, 429, 498, 503}
 BLOCK_MARKERS = ("ddos-guard", "qrator", "cf-chl", "challenge-platform", "проверка браузера",
-                 "checking your browser", "servicepipe", "js-challenge", "id_captcha_frame", "variti")
+                 "checking your browser", "servicepipe", "js-challenge", "id_captcha_frame", "variti",
+                 "if you are not a bot", "доступ ограничен", "bothunt", "система защиты сайта", "access denied",
+                 "just a moment", "<title>forbidden</title>")
 
 EMAIL_RE = re.compile(r"(?<![\w.+-])[\w.+-]{2,}@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?![\w.+-])")
 PHONE_RE = re.compile(r"(?:\+7|8)[\s\-().]*\d{3}[\s\-().]*\d{3}[\s\-().]*\d{2}[\s\-().]*\d{2}")
@@ -160,28 +164,31 @@ def _is_partner(name: str) -> bool:
 
 
 # --- обход ---------------------------------------------------------------------
-def _fetch(client: httpx.Client, url: str) -> tuple[httpx.Response | None, str | None]:
-    try:
-        resp = client.get(url)
-    except httpx.HTTPError as exc:
-        return None, exc.__class__.__name__
-    return resp, None
+@dataclass
+class Page:
+    url: str  # итоговый URL после редиректов
+    status: int
+    html: str
+    is_html: bool = True
 
 
-def _is_html(resp: httpx.Response) -> bool:
-    ctype = resp.headers.get("content-type", "").lower()
-    return not ctype or "html" in ctype
+Fetcher = Callable[[str], "tuple[Page | None, str | None]"]  # url → (страница, ошибка)
 
 
-def _looks_blocked(resp: httpx.Response) -> bool:
-    if resp.status_code in BLOCK_STATUSES:
+def _looks_blocked(page: Page) -> bool:
+    """Заглушка защиты: маркер в начале страницы или код 403/429 на небольшой странице.
+
+    Большая страница с кодом 403 — это уже настоящий сайт (браузер прошёл проверку, код остался от первого ответа).
+    """
+    small = len(page.html) < 60000
+    head = page.html[:8000].lower() if page.is_html else ""
+    if small and any(m in head for m in BLOCK_MARKERS):
         return True
-    head = resp.text[:4000].lower() if _is_html(resp) else ""
-    return any(m in head for m in BLOCK_MARKERS) and len(resp.text) < 30000
+    return page.status in BLOCK_STATUSES and small
 
 
 def _candidate_links(html: str, base_url: str, domain: str) -> list[str]:
-    scored: dict[str, int] = {}
+    scored: dict[str, float] = {}
     tree = HTMLParser(html)
     for a in tree.css("a[href]"):
         href = (a.attributes.get("href") or "").strip()
@@ -206,44 +213,137 @@ def _candidate_links(html: str, base_url: str, domain: str) -> list[str]:
     return [u for u, _ in sorted(scored.items(), key=lambda kv: -kv[1])]
 
 
-def crawl_site(domain: str, *, transport: httpx.BaseTransport | None = None) -> SiteResult:
+def _crawl(domain: str, fetch: Fetcher) -> SiteResult:
+    """Общая логика обхода: главная → до MAX_PAGES страниц с реквизитами → извлечение данных."""
     result = SiteResult(domain=domain)
+    entry, err = None, None
+    for url in (f"https://{domain}/", f"https://www.{domain}/", f"http://{domain}/"):
+        entry, err = fetch(url)
+        if entry is not None:
+            break
+    if entry is None:
+        result.status, result.error = "down", err
+        return result
+    result.final_url = entry.url
+    if _looks_blocked(entry):
+        result.status, result.error = "blocked", f"HTTP {entry.status}"
+        return result
+    if entry.status >= 400 or not entry.is_html:
+        result.status, result.error = "down", f"HTTP {entry.status}"
+        return result
+
+    pages = [entry.html]
+    title = HTMLParser(entry.html).css_first("title")
+    result.title = title.text(strip=True)[:200] if title else None
+    seen = {entry.url.rstrip("/")}
+    for url in _candidate_links(entry.html, entry.url, domain):
+        if len(pages) >= MAX_PAGES:
+            break
+        if url.rstrip("/") in seen:
+            continue
+        seen.add(url.rstrip("/"))
+        page, _ = fetch(url)
+        if page is not None and page.status < 400 and page.is_html and not _looks_blocked(page):
+            seen.add(page.url.rstrip("/"))
+            pages.append(page.html)
+    result.pages = len(pages)
+    _extract(result, pages)
+    return result
+
+
+def crawl_site(domain: str, *, transport: httpx.BaseTransport | None = None) -> SiteResult:
+    """Быстрый обход обычными HTTP-запросами."""
     with httpx.Client(headers=HEADERS, timeout=TIMEOUT, follow_redirects=True, verify=False,
                       transport=transport) as client:
-        entry, err = None, None
-        for url in (f"https://{domain}/", f"https://www.{domain}/", f"http://{domain}/"):
-            entry, err = _fetch(client, url)
-            if entry is not None:
-                break
-        if entry is None:
-            result.status, result.error = "down", err
-            return result
-        if _looks_blocked(entry):
-            result.status, result.error = "blocked", f"HTTP {entry.status_code}"
-            result.final_url = str(entry.url)
-            return result
-        if entry.status_code >= 400 or not _is_html(entry):
-            result.status, result.error = "down", f"HTTP {entry.status_code}"
-            return result
 
-        result.final_url = str(entry.url)
-        pages = [entry.text]
-        title = HTMLParser(entry.text).css_first("title")
-        result.title = title.text(strip=True)[:200] if title else None
-        seen = {str(entry.url).rstrip("/")}
-        for url in _candidate_links(entry.text, str(entry.url), domain):
-            if len(pages) >= MAX_PAGES:
-                break
-            if url.rstrip("/") in seen:
-                continue
-            seen.add(url.rstrip("/"))
-            resp, _ = _fetch(client, url)
-            if resp is not None and resp.status_code < 400 and _is_html(resp) and not _looks_blocked(resp):
-                seen.add(str(resp.url).rstrip("/"))
-                pages.append(resp.text)
-        result.pages = len(pages)
-        _extract(result, pages)
-    return result
+        def fetch(url: str) -> tuple[Page | None, str | None]:
+            try:
+                resp = client.get(url)
+            except httpx.HTTPError as exc:
+                return None, exc.__class__.__name__
+            ctype = resp.headers.get("content-type", "").lower()
+            return Page(str(resp.url), resp.status_code, resp.text, not ctype or "html" in ctype), None
+
+        return _crawl(domain, fetch)
+
+
+# --- браузер (Playwright) для сайтов с JS-защитой ------------------------------
+BROWSER_NAV_TIMEOUT_MS = 30_000
+BROWSER_CHALLENGE_WAIT_S = 20
+
+
+class BrowserCrawler:
+    """Один Chromium на всю задачу; на каждый сайт — новый контекст (свои cookies).
+
+    Использовать из одного потока: with BrowserCrawler() as b: b.crawl("site.ru")
+    """
+
+    def __init__(self, headless: bool = False):
+        # Видимое окно проходит больше защит (BotHunt и др.). На сервере без экрана — через Xvfb (см. Dockerfile).
+        self.headless = headless
+
+    def __enter__(self) -> "BrowserCrawler":
+        from playwright.sync_api import sync_playwright
+
+        self._pw = sync_playwright().start()
+        try:
+            self._browser = self._pw.chromium.launch(
+                headless=self.headless, args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"]
+            )
+        except Exception:
+            self._pw.stop()
+            raise
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self._browser.close()
+        self._pw.stop()
+
+    def crawl(self, domain: str) -> SiteResult:
+        context = self._browser.new_context(
+            user_agent=HEADERS["User-Agent"], locale="ru-RU", viewport={"width": 1366, "height": 900},
+            ignore_https_errors=True, extra_http_headers={"Accept-Language": HEADERS["Accept-Language"]},
+        )
+        context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        page = context.new_page()
+
+        def fetch(url: str) -> tuple[Page | None, str | None]:
+            try:
+                resp = page.goto(url, wait_until="domcontentloaded", timeout=BROWSER_NAV_TIMEOUT_MS)
+                status = resp.status if resp else 200
+                html = page.content()
+                # JS-проверка: ждём, пока защита сама перезагрузит страницу на настоящий сайт
+                deadline = time.monotonic() + BROWSER_CHALLENGE_WAIT_S
+                while _looks_blocked(Page(page.url, status, html)) and time.monotonic() < deadline:
+                    page.wait_for_timeout(1500)
+                    html = page.content()
+                try:
+                    page.wait_for_load_state("networkidle", timeout=5000)
+                    html = page.content()
+                except Exception:  # noqa: BLE001 — сеть может не успокоиться, нам хватит DOM
+                    pass
+                result_page = Page(page.url, status, html)
+                if status >= 400 and not _looks_blocked(result_page):
+                    result_page.status = 200  # проверка пройдена, код остался от первого ответа
+                return result_page, None
+            except Exception as exc:  # noqa: BLE001
+                return None, exc.__class__.__name__
+
+        try:
+            result = _crawl(domain, fetch)
+            if result.error:
+                result.error = "браузер: " + result.error
+            return result
+        finally:
+            context.close()
+
+
+def browser_available() -> bool:
+    try:
+        import playwright  # noqa: F401
+    except ImportError:
+        return False
+    return True
 
 
 def _extract(result: SiteResult, pages: list[str]) -> None:

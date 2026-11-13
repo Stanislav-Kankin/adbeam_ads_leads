@@ -46,3 +46,14 @@ def test_crawl_site_extracts_everything():
 def test_crawl_site_blocked():
     r = crawl_site("blocked.ru", transport=httpx.MockTransport(handler))
     assert r.status == "blocked"
+
+
+def test_block_page_detection():
+    from ads_leads.site_crawl import Page, _looks_blocked
+
+    assert _looks_blocked(Page("u", 200, "<h1>Forbidden</h1><p>If you are not a bot, please copy the report</p>"))
+    assert _looks_blocked(Page("u", 403, "<title>Доступ ограничен</title>" + "x" * 15000))
+    assert _looks_blocked(Page("u", 429, "<html>Too many</html>"))
+    # браузер прошёл проверку: большая страница сайта, а код 403 остался от первого ответа
+    assert not _looks_blocked(Page("u", 403, "<title>Купить сантехнику</title>" + "x" * 150000))
+    assert not _looks_blocked(Page("u", 200, "<title>Сантехника</title><p>ИНН 7724419293</p>"))

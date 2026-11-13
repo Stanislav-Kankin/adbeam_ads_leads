@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     auth_users: str = ""  # "stas:pw1,nonna:pw2"
     secret_key: str = ""  # подпись cookie; пусто → выводится из паролей
 
+    # Сайты с JS-защитой повторно обходить через браузер (Playwright + Chromium)
+    browser_fallback: bool = True
+
     keyso_api_token: str = ""
     keyso_base: str = "msk"  # регион базы Keys.so (Москва)
 

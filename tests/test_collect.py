@@ -151,8 +151,8 @@ def test_crawl_and_pagination(app_client):
     assert "Готово: 2 сайтов, ИНН найден у 1, 1 с защитой от ботов" in page
     assert "7724419293" in page and "Roistat" in page and "защита от ботов" in page
     assert "ozon.ru" not in page.split('id="step-3"')[1]  # исключённые не обходим
-    # повторный запуск проверяет только новые
-    assert "Все сайты уже проверены" in c.post("/niches/1/crawl").text
+    # повторный запуск проверяет только новые и заблокированные (santeh.ru)
+    assert "Готово: 1 сайтов" in c.post("/niches/1/crawl").text
 
     # пагинация: 25 доменов вручную → 2 страницы по 20
     c.post("/niches/1/companies", data={"domains": chr(10).join(f"site{i}.ru" for i in range(25))})
