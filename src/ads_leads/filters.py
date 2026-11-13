@@ -8,7 +8,7 @@ EXCLUDED_DOMAINS: dict[str, str] = {
     "wildberries.ru": "маркетплейс", "wb.ru": "маркетплейс", "ozon.ru": "маркетплейс",
     "megamarket.ru": "маркетплейс", "sbermegamarket.ru": "маркетплейс", "aliexpress.ru": "маркетплейс",
     "aliexpress.com": "маркетплейс", "lamoda.ru": "маркетплейс", "kazanexpress.ru": "маркетплейс",
-    "magnit.ru": "маркетплейс", "goods.ru": "маркетплейс",
+    "magnit.ru": "маркетплейс", "goods.ru": "маркетплейс", "sima-land.ru": "маркетплейс (опт)",
     # Яндекс, VK, Google и их сервисы (Маркет, Директ, Дзен)
     "yandex.ru": "поисковик/Маркет", "ya.ru": "поисковик", "google.com": "поисковик", "google.ru": "поисковик",
     "dzen.ru": "площадка", "vk.com": "соцсеть", "ok.ru": "соцсеть", "t.me": "мессенджер",

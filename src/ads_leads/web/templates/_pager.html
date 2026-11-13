@@ -1,0 +1,20 @@
+{# Пагинация: pg — результат _paginate, param — имя параметра страницы (p2/p3), anchor — шаг #}
+{% macro pager(pg, param, anchor, per_options, request) %}
+<div class="pager">
+  <span class="muted small">Показано {{ pg.offset + 1 if pg.total else 0 }}–{{ pg.offset + pg.rows|length }} из {{ pg.total }}</span>
+  <span class="pages">
+    {% if pg.pages > 1 %}
+      <a class="pg {{ 'disabled' if pg.page == 1 }}" href="{{ page_url(request, param, pg.page - 1, pg.per, anchor) }}">←</a>
+      {% for i in range(1, pg.pages + 1) %}
+        {% if i == 1 or i == pg.pages or (i - pg.page)|abs <= 2 %}
+          <a class="pg {{ 'on' if i == pg.page }}" href="{{ page_url(request, param, i, pg.per, anchor) }}">{{ i }}</a>
+        {% elif (i - pg.page)|abs == 3 %}<span class="muted">…</span>{% endif %}
+      {% endfor %}
+      <a class="pg {{ 'disabled' if pg.page == pg.pages }}" href="{{ page_url(request, param, pg.page + 1, pg.per, anchor) }}">→</a>
+    {% endif %}
+  </span>
+  <span class="per small muted">На странице:
+    {% for n in per_options %}<a class="pg {{ 'on' if n == pg.per }}" href="{{ page_url(request, param, 1, n, anchor) }}">{{ n }}</a>{% endfor %}
+  </span>
+</div>
+{% endmacro %}

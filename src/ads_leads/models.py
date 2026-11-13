@@ -80,10 +80,35 @@ class Company(Base):
     seo_traffic: Mapped[int | None] = mapped_column()  # traf: оценка трафика из поиска
     keyso_updated_at: Mapped[datetime | None] = mapped_column(DateTime)
 
+    # Обход сайта (шаг 3)
+    site_status: Mapped[str | None] = mapped_column(String(20))  # ok | blocked | down
+    site_error: Mapped[str | None] = mapped_column(String(200))
+    site_url: Mapped[str | None] = mapped_column(String(500))
+    site_title: Mapped[str | None] = mapped_column(String(300))
+    inn_candidates: Mapped[str | None] = mapped_column(String(200))  # все валидные ИНН с сайта через запятую
+    emails: Mapped[str | None] = mapped_column(Text)  # через «; »
+    phones: Mapped[str | None] = mapped_column(Text)
+    socials: Mapped[str | None] = mapped_column(Text)
+    signals: Mapped[str | None] = mapped_column(String(300))  # коды из site_crawl.SIGNALS через запятую
+    metrika_ids: Mapped[str | None] = mapped_column(String(100))
+    site_checked_at: Mapped[datetime | None] = mapped_column(DateTime)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     niches: Mapped[list[Niche]] = relationship(secondary=company_niches, back_populates="companies")
+
+    @property
+    def signal_list(self) -> list[str]:
+        return [s for s in (self.signals or "").split(",") if s]
+
+    @property
+    def email_list(self) -> list[str]:
+        return [s for s in (self.emails or "").split("; ") if s]
+
+    @property
+    def phone_list(self) -> list[str]:
+        return [s for s in (self.phones or "").split("; ") if s]
 
     @property
     def ad_budget_month(self) -> int | None:

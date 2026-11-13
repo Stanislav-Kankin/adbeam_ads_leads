@@ -1,7 +1,9 @@
 """Фоновые задачи. Запускаются в отдельном потоке, прогресс пишут в таблицу jobs."""
 
 import logging
+from collections import Counter
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 from sqlalchemy import select
@@ -14,10 +16,13 @@ from ads_leads.filters import exclusion_reason
 from ads_leads.keyso import KeysoClient, KeysoError
 from ads_leads.models import Company, Job, Niche, NicheAdvertiser, Source
 from ads_leads.regions import YANDEX_BASES
+from ads_leads.site_crawl import SiteResult, crawl_site
 
 log = logging.getLogger(__name__)
 
 KIND_COLLECT = "collect_advertisers"
+KIND_CRAWL = "crawl_sites"
+CRAWL_WORKERS = 8
 
 ClientFactory = Callable[[], KeysoClient]
 
@@ -124,6 +129,68 @@ def _collect(db: Session, job: Job, niche: Niche, queries: list[str], bases: lis
                 db.delete(adv)
         db.commit()
     return len(found), len(excluded)
+
+
+def crawl_sites(job_id: int, crawler: Callable[[str], SiteResult] | None = None, only_new: bool = True) -> None:
+    """Шаг 3: обойти сайты рекламодателей ниши (параллельно), сохранить ИНН, контакты, сигналы."""
+    crawl = crawler or crawl_site
+    with _session() as db:
+        job = db.get(Job, job_id)
+        niche = db.get(Niche, job.niche_id)
+        try:
+            excluded = {a.company_id for a in niche.advertisers if a.excluded}
+            companies = [c for c in niche.companies if c.id not in excluded]
+            if only_new:
+                companies = [c for c in companies if c.site_checked_at is None]
+            if not companies:
+                _update(db, job, status="done", progress=100, message="Все сайты уже проверены")
+                return
+            total = len(companies)
+            _update(db, job, status="running", progress=1, message=f"Проверяю {total} сайтов…")
+            by_domain = {c.domain: c for c in companies}
+            stats = Counter()
+            with ThreadPoolExecutor(CRAWL_WORKERS) as pool:
+                futures = {pool.submit(crawl, d): d for d in by_domain}
+                for done, fut in enumerate(as_completed(futures), 1):
+                    domain = futures[fut]
+                    try:
+                        res = fut.result()
+                    except Exception as exc:  # noqa: BLE001
+                        res = SiteResult(domain=domain, status="down", error=str(exc)[:200])
+                    _apply_site(by_domain[domain], res)
+                    stats[res.status] += 1
+                    stats["inn"] += bool(res.inn)
+                    db.commit()
+                    _update(db, job, progress=int(done / total * 100), message=f"Проверено {done} из {total}: {domain}")
+            msg = f"Готово: {total} сайтов, ИНН найден у {stats['inn']}"
+            if stats["blocked"]:
+                msg += f", {stats['blocked']} с защитой от ботов"
+            if stats["down"]:
+                msg += f", {stats['down']} не открылись"
+            _update(db, job, status="done", progress=100, message=msg)
+        except Exception as exc:  # noqa: BLE001
+            log.exception("Задача %s упала", job_id)
+            db.rollback()
+            _update(db, job, status="error", message=str(exc) or exc.__class__.__name__)
+
+
+def _apply_site(company: Company, res: SiteResult) -> None:
+    company.site_status = res.status
+    company.site_error = res.error
+    company.site_url = res.final_url
+    company.site_title = res.title
+    company.site_checked_at = datetime.now()
+    if res.status != "ok":
+        return
+    # сайт открылся — его данные актуальнее прежних (ИНН оставляем, если в этот раз не нашёлся)
+    company.inn = res.inn or company.inn
+    company.inn_candidates = ",".join(res.inn_candidates) or None
+    company.legal_name = res.legal_name
+    company.emails = "; ".join(res.emails) or None
+    company.phones = "; ".join(res.phones) or None
+    company.socials = "; ".join(res.socials) or None
+    company.signals = ",".join(res.signals) or None
+    company.metrika_ids = ",".join(res.metrika_ids) or None
 
 
 def _enrich_budgets(db: Session, niche: Niche, base: str, client: KeysoClient) -> None:

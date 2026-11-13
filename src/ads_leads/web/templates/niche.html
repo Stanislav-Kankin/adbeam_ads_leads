@@ -1,6 +1,23 @@
 {% extends "base.html" %}
 {% from "_regions.html" import region_picker, region_picker_script %}
+{% from "_pager.html" import pager %}
 {% block title %}{{ niche.name }} · AdBeam Leads{% endblock %}
+
+{% macro job_box(job, anchor) %}
+{% if job %}{% set running = job.status in ('queued', 'running') %}
+<div class="job" data-id="{{ job.id }}" data-running="{{ 'true' if running else 'false' }}" data-anchor="{{ anchor }}">
+  <div class="row" style="justify-content:space-between">
+    <span class="job-msg">{{ job.message or '' }}</span>
+    {% if job.status == 'done' %}<span class="badge ok">готово</span>
+    {% elif job.status == 'error' %}<span class="badge err">ошибка</span>
+    {% else %}<span class="badge warn job-pct">{{ job.progress }}%</span>{% endif %}
+  </div>
+  {% if running %}<div class="progress"><span class="job-bar" style="width:{{ job.progress }}%"></span></div>
+  {% else %}<div class="muted small" style="margin-top:4px">{{ job.finished_at.strftime('%d.%m.%Y %H:%M') if job.finished_at }}{% if job.started_by %} · запустил {{ job.started_by }}{% endif %}</div>{% endif %}
+</div>
+{% endif %}
+{% endmacro %}
+
 {% block content %}
 <div class="page-head">
   <div class="eyebrow"><a href="/" style="text-decoration:none">Ниши</a> · {{ niche.name }}</div>
@@ -21,7 +38,7 @@
   {% endfor %}
 </div>
 
-{# Шаг 1 — запросы #}
+{# ---------- Шаг 1 — запросы ---------- #}
 <div class="card step" id="step-1">
   <div class="step-head"><span class="stepnum">1</span>
     <div class="grow"><h2>Запросы</h2><p class="muted small">Коммерческие запросы ниши. По ним Keys.so найдёт, кто крутит Директ.</p></div>
@@ -44,11 +61,11 @@
   {% endif %}
 </div>
 
-{# Шаг 2 — рекламодатели #}
+{# ---------- Шаг 2 — рекламодатели ---------- #}
 <div class="card step" id="step-2">
   <div class="step-head"><span class="stepnum">2</span>
     <div class="grow"><h2>Рекламодатели</h2><p class="muted small">Кто показывается в рекламе Яндекса по запросам ниши и сколько примерно тратит на Директ.</p></div>
-    <span class="badge info">{{ advertisers|length }}</span>
+    <span class="badge info">{{ advertisers_total }}</span>
   </div>
 
   {% set running = job and job.status in ('queued', 'running') %}
@@ -60,25 +77,13 @@
     {% elif running %}
       <button disabled>Идёт сбор…</button>
     {% else %}
-      <button>{{ 'Обновить данные из Keys.so' if advertisers else 'Собрать рекламодателей из Keys.so' }}</button>
+      <button>{{ 'Обновить данные из Keys.so' if advertisers_total else 'Собрать рекламодателей из Keys.so' }}</button>
       <span class="muted small">{{ niche.queries|length }} запросов × {{ niche.region_codes|length }} регион(ов). Обычно 1–3 минуты.</span>
     {% endif %}
   </form>
+  {{ job_box(job, 'step-2') }}
 
-  {% if job %}
-  <div class="job" id="job" data-id="{{ job.id }}" data-running="{{ 'true' if running else 'false' }}">
-    <div class="row" style="justify-content:space-between">
-      <span id="job-msg">{{ job.message or '' }}</span>
-      {% if job.status == 'done' %}<span class="badge ok">готово</span>
-      {% elif job.status == 'error' %}<span class="badge err">ошибка</span>
-      {% else %}<span class="badge warn" id="job-pct">{{ job.progress }}%</span>{% endif %}
-    </div>
-    {% if running %}<div class="progress"><span id="job-bar" style="width:{{ job.progress }}%"></span></div>{% endif %}
-    {% if not running %}<div class="muted small" style="margin-top:4px">{{ job.finished_at.strftime('%d.%m.%Y %H:%M') if job.finished_at }}{% if job.started_by %} · запустил {{ job.started_by }}{% endif %}</div>{% endif %}
-  </div>
-  {% endif %}
-
-  {% if advertisers %}
+  {% if adv_page.rows %}
   <div class="table-wrap" style="margin-top:12px">
   <table>
     <thead><tr>
@@ -91,9 +96,9 @@
       <th>Регионы</th>
     </tr></thead>
     <tbody>
-    {% for r in advertisers %}{% set c = r.company %}
+    {% for r in adv_page.rows %}{% set c = r.company %}
     <tr>
-      <td class="muted small">{{ loop.index }}</td>
+      <td class="muted small">{{ adv_page.offset + loop.index }}</td>
       <td>
         <a class="domain" href="https://{{ c.domain }}" target="_blank" rel="noopener">{{ c.domain }}</a>
         {% if c.source == 'manual' %}<span class="badge info">вручную</span>{% endif %}
@@ -109,6 +114,7 @@
     </tbody>
   </table>
   </div>
+  {{ pager(adv_page, 'p2', 'step-2', per_options, request) }}
   <p class="muted small" style="margin:10px 0 0">* Оценка Keys.so по первому региону ниши: весь контекст домена, не только эта ниша. Ориентир для сравнения компаний, а не точная сумма.</p>
   {% elif not running %}
   <div class="empty">Рекламодателей пока нет. Нажмите «Собрать рекламодателей из Keys.so».</div>
@@ -129,9 +135,61 @@
   </details>
 </div>
 
-{# Шаги 3–5 — в разработке #}
-{% set hints = {3: 'Реквизиты и ИНН с сайта, контакты, Метрика, Roistat/Calltouch', 4: 'Файл ИНН → выгрузка с выручкой и руководителем', 5: 'Excel-таблица и сводка по нише'} %}
-{% for s in steps[2:] %}
+{# ---------- Шаг 3 — сайты ---------- #}
+<div class="card step" id="step-3">
+  <div class="step-head"><span class="stepnum">3</span>
+    <div class="grow"><h2>Сайты: ИНН и сигналы</h2><p class="muted small">Обходим главную, контакты, реквизиты и оферту: ИНН, юрлицо, телефоны, почты, счётчики рекламы и сквозная аналитика.</p></div>
+    <span class="badge info">ИНН: {{ with_inn }} из {{ advertisers_total }}</span>
+  </div>
+  {% set crawling = crawl_job and crawl_job.status in ('queued', 'running') %}
+  <form method="post" action="/niches/{{ niche.id }}/crawl" class="row">
+    {% if not advertisers_total %}
+      <button disabled>Проверить сайты</button><span class="muted small">Сначала соберите рекламодателей на шаге 2</span>
+    {% elif crawling %}
+      <button disabled>Идёт проверка…</button>
+    {% else %}
+      <button>{{ 'Проверить новые сайты' if checked_total else 'Проверить сайты' }}</button>
+      {% if checked_total %}<label class="small muted row" style="gap:6px"><input type="checkbox" name="recheck" value="1"> перепроверить все {{ advertisers_total }}</label>{% endif %}
+      <span class="muted small">≈ 1–2 секунды на сайт, 8 сайтов параллельно.</span>
+    {% endif %}
+  </form>
+  {{ job_box(crawl_job, 'step-3') }}
+
+  {% if checked_total %}
+  <div class="table-wrap" style="margin-top:12px">
+  <table>
+    <thead><tr><th>#</th><th>Домен</th><th>ИНН / юрлицо</th><th>Контакты</th><th>Сигналы</th></tr></thead>
+    <tbody>
+    {% for r in site_page.rows %}{% set c = r.company %}
+    <tr>
+      <td class="muted small">{{ site_page.offset + loop.index }}</td>
+      <td><a class="domain" href="{{ c.site_url or 'https://' ~ c.domain }}" target="_blank" rel="noopener">{{ c.domain }}</a>
+        {% if c.site_status == 'blocked' %}<br><span class="badge warn" title="{{ c.site_error }}">защита от ботов</span>
+        {% elif c.site_status == 'down' %}<br><span class="badge err" title="{{ c.site_error }}">не открылся</span>
+        {% elif not c.site_checked_at %}<br><span class="badge info">не проверен</span>{% endif %}
+      </td>
+      <td class="cell-list">
+        {% if c.inn %}<b>{{ c.inn }}</b>{% if c.inn_candidates and ',' in c.inn_candidates %} <span class="muted" title="Другие ИНН на сайте: {{ c.inn_candidates }}">+{{ c.inn_candidates.split(',')|length - 1 }}</span>{% endif %}<br>{% elif c.site_status == 'ok' %}<span class="muted">ИНН не найден</span><br>{% endif %}
+        {{ c.legal_name or '' }}
+      </td>
+      <td class="cell-list">
+        {% for p in c.phone_list[:2] %}<span class="nowrap">{{ p }}</span><br>{% endfor %}
+        {% for e in c.email_list[:2] %}<a href="mailto:{{ e }}">{{ e }}</a><br>{% endfor %}
+      </td>
+      <td>{% for s in c.signal_list %}<span class="sig {{ 'hot' if s in end_to_end }}" title="{{ 'Сквозная аналитика / коллтрекинг' if s in end_to_end }}">{{ signal_names.get(s, s) }}</span>{% endfor %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {{ pager(site_page, 'p3', 'step-3', per_options, request) }}
+  <p class="muted small" style="margin:10px 0 0"><span class="sig hot">жёлтым</span> — сквозная аналитика и коллтрекинг: компании уже считают эффективность рекламы, им проще сравнить двух подрядчиков.</p>
+  {% endif %}
+</div>
+
+{# ---------- Шаги 4–5 — в разработке ---------- #}
+{% set hints = {4: 'Файл ИНН → выгрузка с выручкой и руководителем', 5: 'Excel-таблица и сводка по нише'} %}
+{% for s in steps[3:] %}
 <div class="card step soon" id="step-{{ s.n }}">
   <div class="step-head"><span class="stepnum">{{ s.n }}</span>
     <div class="grow"><h2>{{ s.title }}</h2><p class="muted small">{{ hints[s.n] }}</p></div>
@@ -144,22 +202,19 @@
 {% block scripts %}
 {{ region_picker_script() }}
 <script>
-(() => {
-  const box = document.getElementById("job");
-  if (!box || box.dataset.running !== "true") return;
+document.querySelectorAll('.job[data-running="true"]').forEach((box) => {
   const tick = async () => {
     try {
-      const r = await fetch(`/jobs/${box.dataset.id}`, { credentials: "same-origin" });
-      const j = await r.json();
-      document.getElementById("job-msg").textContent = j.message || "";
-      const bar = document.getElementById("job-bar"), pct = document.getElementById("job-pct");
+      const j = await (await fetch(`/jobs/${box.dataset.id}`, { credentials: "same-origin" })).json();
+      box.querySelector(".job-msg").textContent = j.message || "";
+      const bar = box.querySelector(".job-bar"), pct = box.querySelector(".job-pct");
       if (bar) bar.style.width = j.progress + "%";
       if (pct) pct.textContent = j.progress + "%";
-      if (j.status === "done" || j.status === "error") { location.hash = "step-2"; location.reload(); return; }
+      if (j.status === "done" || j.status === "error") { location.hash = box.dataset.anchor; location.reload(); return; }
     } catch (e) {}
     setTimeout(tick, 2000);
   };
   setTimeout(tick, 1500);
-})();
+});
 </script>
 {% endblock %}

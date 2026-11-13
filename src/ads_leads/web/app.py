@@ -8,7 +8,7 @@ import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -23,10 +23,21 @@ from ads_leads.db import get_session, init_db
 from ads_leads.domains import normalize_domain
 from ads_leads.models import Company, Job, Niche, NicheQuery, Source
 from ads_leads.regions import DEFAULT_REGIONS, YANDEX_BASES, parse_regions, region_names
+from ads_leads.site_crawl import END_TO_END, SIGNAL_NAMES
 
 WEB_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=WEB_DIR / "templates")
 templates.env.globals.update(YANDEX_BASES=YANDEX_BASES, region_names=region_names)
+
+
+def page_url(request: Request, param: str, page: int, per: int, anchor: str) -> str:
+    """Ссылка на страницу таблицы с сохранением остальных параметров (пагинация шагов независимая)."""
+    params = {k: v for k, v in request.query_params.items() if k not in (param, "per")}
+    params.update({param: page, "per": per})
+    return "?" + urlencode(params) + "#" + anchor
+
+
+templates.env.globals["page_url"] = page_url
 templates.env.filters["num"] = lambda v: "—" if v is None else f"{int(v):,}".replace(",", " ")
 DbSession = Annotated[Session, Depends(get_session)]
 
@@ -183,23 +194,43 @@ def _advertiser_rows(niche: Niche) -> tuple[list[dict], list[dict]]:
     return ordered, sorted(excluded.values(), key=lambda r: -r["share"])
 
 
+PER_PAGE_OPTIONS = (20, 50, 100)
+
+
+def _paginate(rows: list, page: int, per: int) -> dict:
+    per = per if per in PER_PAGE_OPTIONS else PER_PAGE_OPTIONS[0]
+    pages = max(1, -(-len(rows) // per))
+    page = min(max(page, 1), pages)
+    start = (page - 1) * per
+    return {"rows": rows[start : start + per], "page": page, "pages": pages, "per": per, "total": len(rows),
+            "offset": start}
+
+
+def _last_job(db: Session, niche_id: int, kind: str) -> Job | None:
+    return jobs.active_job(db, niche_id, kind) or db.scalar(
+        select(Job).where(Job.niche_id == niche_id, Job.kind == kind).order_by(Job.id.desc())
+    )
+
+
 @app.get("/niches/{niche_id}", response_class=HTMLResponse)
-def niche_page(request: Request, db: DbSession, niche_id: int):
+def niche_page(request: Request, db: DbSession, niche_id: int, per: int = 20, p2: int = 1, p3: int = 1):
     niche = _get_niche(db, niche_id)
     advertisers, excluded = _advertiser_rows(niche)
+    checked = [r for r in advertisers if r["company"].site_checked_at]
     with_inn = sum(1 for r in advertisers if r["company"].inn)
     steps = [
         {"n": 1, "title": "Запросы", "count": len(niche.queries), "ready": True},
         {"n": 2, "title": "Рекламодатели", "count": len(advertisers), "ready": True},
-        {"n": 3, "title": "Сайты: ИНН и сигналы", "count": with_inn, "ready": False},
+        {"n": 3, "title": "Сайты: ИНН и сигналы", "count": with_inn, "ready": True},
         {"n": 4, "title": "Контур.Продажи", "count": None, "ready": False},
         {"n": 5, "title": "Досье", "count": None, "ready": False},
     ]
-    job = jobs.active_job(db, niche_id) or db.scalar(
-        select(Job).where(Job.niche_id == niche_id, Job.kind == jobs.KIND_COLLECT).order_by(Job.id.desc())
-    )
     return _render(
-        request, "niche.html", niche=niche, steps=steps, advertisers=advertisers, excluded=excluded, job=job
+        request, "niche.html", niche=niche, steps=steps, excluded=excluded,
+        adv_page=_paginate(advertisers, p2, per), site_page=_paginate(advertisers, p3, per),
+        advertisers_total=len(advertisers), checked_total=len(checked), with_inn=with_inn,
+        job=_last_job(db, niche_id, jobs.KIND_COLLECT), crawl_job=_last_job(db, niche_id, jobs.KIND_CRAWL),
+        per_options=PER_PAGE_OPTIONS, signal_names=SIGNAL_NAMES, end_to_end=END_TO_END,
     )
 
 
@@ -232,13 +263,27 @@ def start_collect(request: Request, db: DbSession, niche_id: int):
         raise HTTPException(400, "Keys.so не подключён: нет токена в .env")
     if not niche.queries:
         raise HTTPException(400, "Сначала добавьте запросы на шаге 1")
-    if jobs.active_job(db, niche_id) is None:
+    if jobs.active_job(db, niche_id, jobs.KIND_COLLECT) is None:
         job = Job(niche_id=niche_id, kind=jobs.KIND_COLLECT, started_by=request.state.user,
                   message="В очереди…")
         db.add(job)
         db.commit()
-        run_in_background(jobs.collect_advertisers, job.id)
+        run_in_background(jobs.collect_advertisers, job.id, None)
     return RedirectResponse(f"/niches/{niche_id}#step-2", status_code=303)
+
+
+@app.post("/niches/{niche_id}/crawl")
+def start_crawl(request: Request, db: DbSession, niche_id: int, recheck: Annotated[str | None, Form()] = None):
+    """Шаг 3: обойти сайты рекламодателей ниши (в фоне)."""
+    niche = _get_niche(db, niche_id)
+    if not niche.companies:
+        raise HTTPException(400, "Сначала соберите рекламодателей на шаге 2")
+    if jobs.active_job(db, niche_id, jobs.KIND_CRAWL) is None:
+        job = Job(niche_id=niche_id, kind=jobs.KIND_CRAWL, started_by=request.state.user, message="В очереди…")
+        db.add(job)
+        db.commit()
+        run_in_background(jobs.crawl_sites, job.id, None, not recheck)
+    return RedirectResponse(f"/niches/{niche_id}#step-3", status_code=303)
 
 
 @app.get("/jobs/{job_id}")

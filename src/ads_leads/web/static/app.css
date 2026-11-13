@@ -124,3 +124,16 @@ dialog.regions .d-foot { padding: 16px 26px 22px; display: flex; gap: 10px; just
   .topbar .inner { gap: 16px; padding: 10px 16px; } .topbar nav { gap: 14px; }
   main { padding: 24px 16px 48px; } h1 { font-size: 26px; }
 }
+
+/* пагинация */
+.pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 14px 0 0; }
+.pager .pages, .pager .per { display: flex; gap: 4px; align-items: center; }
+.pg { min-width: 32px; height: 32px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line); border-radius: 6px; text-decoration: none; color: var(--navy); font-weight: 600; font-size: 13px; background: #fff; }
+.pg:hover { border-color: var(--yellow); }
+.pg.on { background: var(--navy); border-color: var(--navy); color: #fff; }
+.pg.disabled { pointer-events: none; opacity: .35; }
+.sig { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; margin: 1px 2px 1px 0;
+  background: #edf0f8; color: var(--navy); white-space: nowrap; }
+.sig.hot { background: var(--yellow); color: var(--navy); }
+.cell-list { font-size: 13px; line-height: 1.45; }

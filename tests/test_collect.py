@@ -51,7 +51,21 @@ def app_client(tmp_path, monkeypatch):
     config.get_settings.cache_clear()
     db.get_engine.cache_clear()
     factory = lambda: KeysoClient("t", transport=httpx.MockTransport(fake_keyso), min_interval=0)  # noqa: E731
-    monkeypatch.setattr(web, "run_in_background", lambda fn, job_id: fn(job_id, factory))
+    from ads_leads.site_crawl import SiteResult
+
+    def fake_crawl(domain):
+        if domain == "santeh.ru":
+            return SiteResult(domain=domain, status="blocked", error="HTTP 403")
+        return SiteResult(domain=domain, inn="7724419293", inn_candidates=["7724419293"], legal_name='ООО "Тест"',
+                          emails=["info@" + domain], phones=["+7 495 111-22-33"], signals=["metrika", "roistat"])
+
+    def run_sync(fn, job_id, _factory=None, *rest):
+        if fn is jobs.crawl_sites:
+            fn(job_id, fake_crawl, *rest)
+        else:
+            fn(job_id, factory)
+
+    monkeypatch.setattr(web, "run_in_background", run_sync)
     with TestClient(web.app) as c:
         yield c
     db.get_engine.cache_clear()
@@ -126,3 +140,25 @@ def test_old_database_is_migrated(tmp_path, monkeypatch):
     finally:
         db.get_engine.cache_clear()
         config.get_settings.cache_clear()
+
+
+def test_crawl_and_pagination(app_client):
+    c = app_client
+    c.post("/niches", data={"name": "сантехника", "regions": ["msk"]})
+    c.post("/niches/1/queries", data={"queries": "купить смеситель grohe"})
+    c.post("/niches/1/collect")
+    page = c.post("/niches/1/crawl").text
+    assert "Готово: 2 сайтов, ИНН найден у 1, 1 с защитой от ботов" in page
+    assert "7724419293" in page and "Roistat" in page and "защита от ботов" in page
+    assert "ozon.ru" not in page.split('id="step-3"')[1]  # исключённые не обходим
+    # повторный запуск проверяет только новые
+    assert "Все сайты уже проверены" in c.post("/niches/1/crawl").text
+
+    # пагинация: 25 доменов вручную → 2 страницы по 20
+    c.post("/niches/1/companies", data={"domains": chr(10).join(f"site{i}.ru" for i in range(25))})
+    page = c.get("/niches/1?per=20&p2=2").text
+    step2 = page.split('id="step-2"')[1].split('id="step-3"')[0]
+    assert "Показано 21–27 из 27" in step2
+    assert "per=50" in step2
+    page = c.get("/niches/1?per=50").text
+    assert "Показано 1–27 из 27" in page.split('id="step-2"')[1]
