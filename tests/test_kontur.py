@@ -136,6 +136,15 @@ def test_dossier(tmp_path, monkeypatch):
             short = openpyxl.load_workbook(io.BytesIO(c.get("/niches/1/shortlist.xlsx").content))
             assert [r[0] for r in short["Шорт-лист"].iter_rows(min_row=2, values_only=True)] == ["santeh.ru"]
             assert c.get("/companies/shortlist.xlsx").status_code == 200
+
+            # галочки: A/B отмечены по умолчанию; одиночная галочка через fetch; массовые кнопки
+            assert c.post(f"/companies/{ids['santeh.ru']}/pick", data={"value": "", "ajax": "1"}).json()["picked"]
+            assert not c.post(f"/companies/{ids['santeh.ru']}/pick", data={"value": "no", "ajax": "1"}).json()["picked"]
+            c.post("/niches/1/pick-all", data={"value": "yes", "f5": "all", "next": "/niches/1"})
+            page = c.get("/niches/1").text.split('id="step-5"')[1]
+            assert "Отмечены · <span data-count=\"yes\">3</span>" in page and "Выделить все (3)" in page
+            c.post("/niches/1/pick-all", data={"value": "no", "f5": "all", "next": "/niches/1"})
+            assert "отобрано 0" in c.get("/niches/1").text
     finally:
         db.get_engine.cache_clear()
         config.get_settings.cache_clear()

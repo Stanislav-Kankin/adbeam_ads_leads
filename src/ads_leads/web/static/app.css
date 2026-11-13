@@ -138,6 +138,8 @@ dialog.regions .d-foot { padding: 16px 26px 22px; display: flex; gap: 10px; just
 .sig.hot { background: var(--yellow); color: var(--navy); }
 .sig.warm { background: var(--yellow-soft); color: #8a6100; }
 .sig.prio-A { background: #d9f2e3; } .sig.prio-B { background: #fff2cc; }
+.pick-box { width: 18px; height: 18px; accent-color: var(--navy); cursor: pointer; }
+tr.unpicked td:not(:first-child) { opacity: .45; }
 .cell-list { font-size: 13px; line-height: 1.45; }
 
 /* шаг 4 */

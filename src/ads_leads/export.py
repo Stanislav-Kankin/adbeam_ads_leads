@@ -24,7 +24,6 @@ PRIORITY_FILLS = {"A": PatternFill("solid", fgColor="D9F2E3"), "B": PatternFill(
                   "C": PatternFill("solid", fgColor="F2F2F2")}
 E2E_FILL = PatternFill("solid", fgColor="F9DC8C")  # сквозная аналитика — ярче
 CALLTRACKING_FILL = PatternFill("solid", fgColor="FDF3D8")
-PICK_LABELS = {"yes": "берём", "no": "не берём"}
 WRAP = Alignment(wrap_text=True, vertical="top")
 
 # (заголовок, ширина) — первые колонки в порядке, который попросил пользователь
@@ -107,6 +106,13 @@ def priority(c: Company) -> tuple[str, str]:
     return "B", "Директ от 300 тыс. ₽/мес, аналитики на сайте не видно"
 
 
+def is_picked(c: Company) -> bool:
+    """В шорт-листе: отмечена вручную или (по умолчанию) приоритет A/B, пока галочку не сняли."""
+    if c.pick is not None:
+        return c.pick == "yes"
+    return priority(c)[0] in "AB"
+
+
 def collect_rows(niches: list[Niche]) -> tuple[list[DossierRow], list[DossierRow], list[DossierRow]]:
     """(лист «Досье»: есть ИНН или контакты; без ИНН и контактов; отмечены «не берём»).
     Автоматически исключённые домены (маркетплейсы и т.п.) не попадают никуда."""
@@ -127,7 +133,7 @@ def collect_rows(niches: list[Niche]) -> tuple[list[DossierRow], list[DossierRow
             if c.id in stats and (row.share is None or stats[c.id][0] > row.share):
                 row.share, row.keys_cnt = stats[c.id]
     order = {"A": 0, "B": 1, "C": 2}
-    all_rows = sorted(rows.values(), key=lambda r: (r.company.pick != "yes", order[priority(r.company)[0]],
+    all_rows = sorted(rows.values(), key=lambda r: (not is_picked(r.company), order[priority(r.company)[0]],
                                                      -(r.company.ad_cost or -1), -(r.company.revenue or -1)))
     rejected = [r for r in all_rows if r.company.pick == "no"]
     kept = [r for r in all_rows if r.company.pick != "no"]
@@ -146,7 +152,7 @@ def _values(r: DossierRow) -> list:
         c.domain, c.inn or "", c.kontur_name or c.legal_name or "", _emails(c.emails), _emails(c.kontur_emails),
         _phones(c.phones), _phones(c.kontur_phones), c.ad_budget_month, signals, _mln(c.revenue), _mln(c.profit),
         _mln(c.balance), ", ".join(r.niches),
-        prio, why, PICK_LABELS.get(c.pick or "", ""), c.director_name or "", c.director_post or "",
+        prio, why, "берём" if is_picked(c) else "", c.director_name or "", c.director_post or "",
         "\n".join(private_mobiles(c)), c.employees, c.legal_status or "", c.msp or "", c.region or "",
         round(r.share, 1) if r.share is not None else None, r.keys_cnt, c.ad_traffic, _lines(c.socials), site_status,
     ]
@@ -175,7 +181,7 @@ def _write_sheet(ws, rows: list[DossierRow]) -> None:
             ws.cell(row=n, column=COL["Сигналы"]).fill = E2E_FILL
         elif has_calltracking(r.company):
             ws.cell(row=n, column=COL["Сигналы"]).fill = CALLTRACKING_FILL
-        if r.company.pick == "yes":
+        if is_picked(r.company):
             ws.cell(row=n, column=COL["Отбор"]).font = Font(bold=True, color="1E7B45")
         for col in MLN_COLS:
             ws.cell(row=n, column=col).number_format = "#,##0.#"
@@ -189,7 +195,7 @@ def build_dossier(niches: list[Niche], title: str, only_picked: bool = False) ->
     """Полное досье или шорт-лист (only_picked — только отмеченные «берём»)."""
     main, rest, rejected = collect_rows(niches)
     if only_picked:
-        main = [r for r in main + rest if r.company.pick == "yes"]
+        main = [r for r in main + rest if is_picked(r.company)]
         rest, rejected = [], []
     wb = Workbook()
     ws = wb.active
@@ -201,7 +207,7 @@ def build_dossier(niches: list[Niche], title: str, only_picked: bool = False) ->
     lines = [
         ("Досье" if not only_picked else "Шорт-лист", title),
         ("Сформировано", datetime.now().strftime("%d.%m.%Y %H:%M")), ("", ""),
-        ("Компаний на листе", len(main)), ("Отобрано («берём»)", sum(1 for r in main if r.company.pick == "yes")),
+        ("Компаний на листе", len(main)), ("Отобрано («берём»)", sum(1 for r in main if is_picked(r.company))),
         ("Приоритет A", prios.count("A")), ("Приоритет B", prios.count("B")), ("Приоритет C", prios.count("C")),
         ("С ИНН", sum(1 for r in main if r.company.inn)),
         ("Без ИНН, но с почтой или телефоном", sum(1 for r in main if not r.company.inn)),

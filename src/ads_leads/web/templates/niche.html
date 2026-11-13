@@ -285,20 +285,29 @@
   <p class="muted small" style="margin:12px 0 0">A — Директ от {{ min_budget|num }} ₽/мес и сквозная аналитика или коллтрекинг, выручка от 200 млн ₽ (или неизвестна); B — Директ от {{ min_budget|num }} ₽/мес без аналитики или с выручкой меньше 200 млн; C — меньше {{ min_budget|num }} ₽/мес, нет оценки трат или компания не действующая.</p>
 
   <h3 style="margin:22px 0 4px">Отбор в шорт-лист</h3>
-  <p class="muted small" style="margin:0 0 10px">Откройте сайт, решите «берём / не берём». «Не берём» уходит на отдельный лист досье — так же убирается мусор (сервисы, маркетплейсы), который не отсеялся сам.</p>
+  <p class="muted small" style="margin:0 0 10px">A и B отмечены сами. Снимите галочку у тех, кого не берём (мусор, не наш профиль) — сохраняется сразу. Снятые уходят на лист «Не берём» в досье, отмеченные — в шорт-лист.</p>
   <div class="row filters">
     {% for key, label, cnt in pick_filters %}
-    <a class="pg {{ 'on' if key == f5 }}" href="{{ page_url(request, 'p5', 1, pick_page.per, 'step-5', f5=key) }}">{{ label }} · {{ cnt }}</a>
+    <a class="pg {{ 'on' if key == f5 }}" href="{{ page_url(request, 'p5', 1, pick_page.per, 'step-5', f5=key) }}">{{ label }} · <span data-count="{{ key }}">{{ cnt }}</span></a>
+    {% endfor %}
+    <span class="grow"></span>
+    {% for value, label in [('yes', 'Выделить все'), ('no', 'Снять все')] %}
+    <form method="post" action="/niches/{{ niche.id }}/pick-all" {% if value == 'no' %}onsubmit="return confirm('Снять галочки со всех компаний в этом фильтре ({{ pick_page.total }})?')"{% endif %}>
+      <input type="hidden" name="value" value="{{ value }}"><input type="hidden" name="f5" value="{{ f5 }}">
+      <input type="hidden" name="next" value="{{ request.url.path }}?{{ request.url.query }}">
+      <button class="ghost sm">{{ label }} ({{ pick_page.total }})</button>
+    </form>
     {% endfor %}
   </div>
   {% if pick_page.rows %}
   <div class="table-wrap" style="margin-top:12px">
   <table>
-    <thead><tr><th>#</th><th>Компания</th><th class="num">Директ, ₽/мес*</th><th class="num">Выручка, млн ₽</th>
-      <th>Сигналы</th><th>Руководитель</th><th>Приоритет</th><th>Отбор</th></tr></thead>
+    <thead><tr><th style="width:36px"></th><th>#</th><th>Компания</th><th class="num">Директ, ₽/мес*</th><th class="num">Выручка, млн ₽</th>
+      <th>Сигналы</th><th>Руководитель</th><th>Приоритет</th></tr></thead>
     <tbody>
-    {% for r in pick_page.rows %}{% set c = r.company %}{% set pr = priority(c) %}
-    <tr>
+    {% for r in pick_page.rows %}{% set c = r.company %}{% set pr = priority(c) %}{% set on = is_picked(c) %}
+    <tr class="pick-row {{ '' if on else 'unpicked' }}">
+      <td><input type="checkbox" class="pick-box" data-id="{{ c.id }}" {{ 'checked' if on }} title="Берём в шорт-лист"></td>
       <td class="muted small">{{ pick_page.offset + loop.index }}</td>
       <td class="cell-list"><a class="domain" href="https://{{ c.domain }}" target="_blank" rel="noopener">{{ c.domain }}</a><br>
         {{ c.kontur_name or c.legal_name or '' }}{% if c.inn %}<br><span class="muted">ИНН {{ c.inn }}</span>{% endif %}</td>
@@ -307,14 +316,6 @@
       <td>{{ signals(c) }}</td>
       <td class="cell-list">{{ c.director_name or '—' }}{% for p in private_mobiles(c)[:2] %}<br><span class="nowrap" title="Мобильный из Контура, которого нет на сайте">📱 {{ p }}</span>{% endfor %}</td>
       <td><span class="sig prio-{{ pr[0] }}" title="{{ pr[1] }}">{{ pr[0] }}</span></td>
-      <td>
-        <form method="post" action="/companies/{{ c.id }}/pick" class="row" style="gap:4px;flex-wrap:nowrap">
-          <input type="hidden" name="next" value="{{ request.url.path }}?{{ request.url.query }}">
-          {% if c.pick == 'yes' %}<span class="badge ok">берём</span><button class="ghost sm" name="value" value="">×</button>
-          {% elif c.pick == 'no' %}<span class="badge err">не берём</span><button class="ghost sm" name="value" value="">×</button>
-          {% else %}<button class="sm" name="value" value="yes">Берём</button><button class="ghost sm" name="value" value="no">Нет</button>{% endif %}
-        </form>
-      </td>
     </tr>
     {% endfor %}
     </tbody>
@@ -334,6 +335,24 @@
 {% block scripts %}
 {{ region_picker_script() }}
 <script>
+document.querySelectorAll(".pick-box").forEach((box) => {
+  box.addEventListener("change", async () => {
+    const body = new URLSearchParams({ value: box.checked ? "yes" : "no", ajax: "1" });
+    const row = box.closest("tr");
+    row.classList.toggle("unpicked", !box.checked);
+    try {
+      const r = await fetch(`/companies/${box.dataset.id}/pick`, { method: "POST", body, credentials: "same-origin" });
+      if (!r.ok) throw new Error(r.status);
+      const step = { yes: 1, no: -1 }, d = box.checked ? 1 : -1;
+      const yes = document.querySelector('[data-count="yes"]'), no = document.querySelector('[data-count="no"]');
+      if (yes) yes.textContent = +yes.textContent + d;
+      if (no) no.textContent = +no.textContent - d;
+    } catch (e) {
+      box.checked = !box.checked; row.classList.toggle("unpicked", !box.checked);
+      alert("Не сохранилось, попробуйте ещё раз");
+    }
+  });
+});
 document.querySelectorAll('.job[data-running="true"]').forEach((box) => {
   const tick = async () => {
     try {

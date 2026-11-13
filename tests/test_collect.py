@@ -155,7 +155,7 @@ def test_crawl_and_pagination(app_client):
     assert "Готово: 1 сайтов" in c.post("/niches/1/crawl").text
 
     # фильтр «защита» и ручной ввод ИНН
-    page = c.get("/niches/1?f3=blocked").text.split('id="step-3"')[1]
+    page = c.get("/niches/1?f3=blocked").text.split('id="step-3"')[1].split('id="step-4"')[0]
     assert "santeh.ru" in page and "santehnika-online.ru" not in page
     sid = c.get("/niches/1?f3=blocked").text.split('action="/companies/')[1].split("/")[0]
     assert "Неверный ИНН" in c.post(f"/companies/{sid}/inn", data={"inn": "1234567890", "next": "/niches/1"}).text

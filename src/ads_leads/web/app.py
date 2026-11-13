@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session, selectinload
 from ads_leads import __version__, auth, jobs
 from ads_leads.config import get_settings
 from ads_leads.db import get_session, init_db
-from ads_leads.export import MIN_BUDGET, build_dossier, collect_rows, priority, private_mobiles
+from ads_leads.export import MIN_BUDGET, build_dossier, collect_rows, is_picked, priority, private_mobiles
 from ads_leads.kontur import KonturFormatError, build_inn_xlsx, parse_kontur_xlsx
 from ads_leads.domains import normalize_domain
 from ads_leads.models import Company, Job, Niche, NicheQuery, Source
@@ -160,7 +160,7 @@ def niche_stats(niche: Niche) -> dict:
         "with_inn": sum(1 for r in kept if r.company.inn),
         "budget_ok": sum(1 for r in kept if (r.company.ad_budget_month or 0) >= MIN_BUDGET),
         "A": prios.count("A"), "B": prios.count("B"),
-        "picked": sum(1 for r in kept if r.company.pick == "yes"),
+        "picked": sum(1 for r in kept if is_picked(r.company)),
     }
 
 
@@ -244,16 +244,15 @@ SITE_FILTERS = {
 
 # Отбор в шорт-лист (шаг 5): кандидаты A/B, по которым ещё не решили, — первыми
 PICK_FILTERS = {
-    "todo": ("A и B, не решено", lambda r: r.company.pick is None and priority(r.company)[0] in "AB"),
-    "yes": ("Берём", lambda r: r.company.pick == "yes"),
-    "no": ("Не берём", lambda r: r.company.pick == "no"),
     "all": ("Все", lambda r: True),
+    "yes": ("Отмечены", lambda r: is_picked(r.company)),
+    "no": ("Не отмечены", lambda r: not is_picked(r.company)),
 }
 
 
 @app.get("/niches/{niche_id}", response_class=HTMLResponse)
 def niche_page(request: Request, db: DbSession, niche_id: int, per: int = 20, p2: int = 1, p3: int = 1,
-               f3: str = "all", p4: int = 1, p5: int = 1, f5: str = "todo"):
+               f3: str = "all", p4: int = 1, p5: int = 1, f5: str = "all"):
     niche = _get_niche(db, niche_id)
     advertisers, excluded = _advertiser_rows(niche)
     checked = [r for r in advertisers if r["company"].site_checked_at]
@@ -261,14 +260,14 @@ def niche_page(request: Request, db: DbSession, niche_id: int, per: int = 20, p2
     dossier_main, dossier_rest, dossier_rejected = collect_rows([niche])
     dossier_prio = [priority(r.company)[0] for r in dossier_main]
     candidates = dossier_main + dossier_rest + dossier_rejected
-    f5 = f5 if f5 in PICK_FILTERS else "todo"
+    f5 = f5 if f5 in PICK_FILTERS else "all"
     steps = [
         {"n": 1, "title": "Запросы", "count": len(niche.queries), "ready": True},
         {"n": 2, "title": "Рекламодатели", "count": len(advertisers), "ready": True},
         {"n": 3, "title": "Сайты: ИНН и сигналы", "count": with_inn, "ready": True},
         {"n": 4, "title": "Контур.Продажи", "count": sum(1 for r in advertisers if r["company"].kontur_loaded_at),
          "ready": True},
-        {"n": 5, "title": "Досье и отбор", "count": sum(1 for r in candidates if r.company.pick == "yes"),
+        {"n": 5, "title": "Досье и отбор", "count": sum(1 for r in candidates if is_picked(r.company)),
          "ready": True},
     ]
     return _render(
@@ -287,10 +286,10 @@ def niche_page(request: Request, db: DbSession, niche_id: int, per: int = 20, p2
         dossier={"total": len(dossier_main), "rest": len(dossier_rest),
                  "A": dossier_prio.count("A"), "B": dossier_prio.count("B"), "C": dossier_prio.count("C"),
                  "no_inn": sum(1 for r in dossier_main if not r.company.inn),
-                 "picked": sum(1 for r in candidates if r.company.pick == "yes")},
+                 "picked": sum(1 for r in candidates if is_picked(r.company))},
         pick_page=_paginate([r for r in candidates if PICK_FILTERS[f5][1](r)], p5, per), f5=f5,
         pick_filters=[(k, label, sum(1 for r in candidates if fn(r))) for k, (label, fn) in PICK_FILTERS.items()],
-        priority=priority, private_mobiles=private_mobiles, min_budget=MIN_BUDGET,
+        priority=priority, private_mobiles=private_mobiles, is_picked=is_picked, min_budget=MIN_BUDGET,
         per_options=PER_PAGE_OPTIONS, signal_names=SIGNAL_NAMES, e2e_signals=E2E_ANALYTICS,
         calltracking_signals=CALLTRACKING,
     )
@@ -455,14 +454,31 @@ def all_shortlist(db: DbSession):
 
 
 @app.post("/companies/{company_id}/pick")
-def set_pick(request: Request, db: DbSession, company_id: int, value: Annotated[str, Form()],
-             next: Annotated[str, Form()] = "/"):
-    """Отбор в шорт-лист: yes — берём, no — не берём (уходит на лист «Не берём»), иное — сбросить."""
+def set_pick(request: Request, db: DbSession, company_id: int, value: Annotated[str, Form()] = "",
+             next: Annotated[str, Form()] = "/", ajax: Annotated[str | None, Form()] = None):
+    """Галочка отбора: yes — в шорт-лист, no — снята (уходит на лист «Не берём»), иное — по умолчанию."""
     company = db.get(Company, company_id)
     if company is None:
         raise HTTPException(404)
     company.pick = value if value in ("yes", "no") else None
     company.pick_by, company.pick_at = request.state.user, datetime.now()
+    db.commit()
+    if ajax:
+        return {"id": company_id, "picked": is_picked(company)}
+    return RedirectResponse(_safe_next(next) + "#step-5", status_code=303)
+
+
+@app.post("/niches/{niche_id}/pick-all")
+def set_pick_all(request: Request, db: DbSession, niche_id: int, value: Annotated[str, Form()],
+                 f5: Annotated[str, Form()] = "all", next: Annotated[str, Form()] = "/"):
+    """«Выделить все» / «Снять все» — для всех компаний ниши в текущем фильтре (не только на странице)."""
+    niche = _get_niche(db, niche_id)
+    main, rest, rejected = collect_rows([niche])
+    flt = PICK_FILTERS.get(f5, PICK_FILTERS["all"])[1]
+    now = datetime.now()
+    for r in [r for r in main + rest + rejected if flt(r)]:
+        r.company.pick = "yes" if value == "yes" else "no"
+        r.company.pick_by, r.company.pick_at = request.state.user, now
     db.commit()
     return RedirectResponse(_safe_next(next) + "#step-5", status_code=303)
 
