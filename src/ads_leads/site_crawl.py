@@ -420,11 +420,13 @@ class BrowserCrawler:
         self._pw.stop()
 
     def crawl(self, domain: str) -> SiteResult:
+        # Никаких подмен: свой User-Agent (Chrome 124 при настоящем Chromium новее) и переопределение
+        # navigator.webdriver защиты (BotHunt) распознают и не пускают. Флаг AutomationControlled в launch
+        # и так убирает webdriver. Проверено на satra.ru 13.11.2026: с подменой — 403, без — сайт открылся.
         context = self._browser.new_context(
-            user_agent=HEADERS["User-Agent"], locale="ru-RU", viewport={"width": 1366, "height": 900},
-            ignore_https_errors=True, extra_http_headers={"Accept-Language": HEADERS["Accept-Language"]},
+            locale="ru-RU", viewport={"width": 1366, "height": 900}, ignore_https_errors=True,
+            extra_http_headers={"Accept-Language": HEADERS["Accept-Language"]},
         )
-        context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         page = context.new_page()
 
         def fetch(url: str) -> tuple[Page | None, str | None]:

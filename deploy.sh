@@ -3,6 +3,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 git pull --ff-only
+# бэкап БД перед обновлением (если контейнер уже запущен)
+docker compose exec -T app ads-leads backup 2>/dev/null || echo "Бэкап пропущен: контейнер не запущен."
 docker compose up -d --build
 
 PORT="${ADS_LEADS_PUBLISH_PORT:-8021}"

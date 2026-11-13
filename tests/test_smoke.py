@@ -94,3 +94,17 @@ def test_login(tmp_path, monkeypatch):
     finally:
         db.get_engine.cache_clear()
         config.get_settings.cache_clear()
+
+
+def test_home_comparison_and_backup(client):
+    client.post("/niches", data={"name": "сантехника"})
+    client.post("/niches/1/companies", data={"domains": "santeh.ru"})
+    from ads_leads.db import backup_db, get_engine
+
+    with get_engine().begin() as conn:
+        conn.exec_driver_sql("update companies set ad_cost=500000, inn='7724419293'")
+    page = client.get("/").text
+    assert "Директ от 300 тыс." in page and "мало" in page
+    path = backup_db(keep=1)
+    assert path.exists() and path.stat().st_size > 0
+    assert len(list(path.parent.glob("ads_leads_*.db"))) == 1

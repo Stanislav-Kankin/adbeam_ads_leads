@@ -143,9 +143,25 @@ def logout():
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request, db: DbSession):
     niches = db.scalars(
-        select(Niche).options(selectinload(Niche.companies), selectinload(Niche.queries)).order_by(Niche.name)
+        select(Niche).options(selectinload(Niche.companies), selectinload(Niche.queries),
+                              selectinload(Niche.advertisers)).order_by(Niche.name)
     ).all()
-    return _render(request, "home.html", niches=niches)
+    return _render(request, "home.html", niches=niches, stats={n.id: niche_stats(n) for n in niches},
+                   min_budget=MIN_BUDGET)
+
+
+def niche_stats(niche: Niche) -> dict:
+    """Для сравнения ниш: хватает ли в нише компаний под гипотезу «50 на нишу, Директ от 300 тыс.»."""
+    main, rest, rejected = collect_rows([niche])
+    kept = main + rest
+    prios = [priority(r.company)[0] for r in main]
+    return {
+        "companies": len(kept) + len(rejected),
+        "with_inn": sum(1 for r in kept if r.company.inn),
+        "budget_ok": sum(1 for r in kept if (r.company.ad_budget_month or 0) >= MIN_BUDGET),
+        "A": prios.count("A"), "B": prios.count("B"),
+        "picked": sum(1 for r in kept if r.company.pick == "yes"),
+    }
 
 
 @app.post("/niches")

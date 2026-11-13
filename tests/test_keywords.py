@@ -41,3 +41,9 @@ def test_suggest_dedup_and_threshold():
     res = suggest_queries(client, ["смеситель"], ["msk"], per_seed=10, min_freq=20)
     assert [s.text for s in res] == ["купить смеситель для кухни", "смеситель купить"]
     assert len(client.filters) == 1
+
+
+def test_new_presets():
+    assert "духи" in preset_seeds("Парфюмерия") and "духи" in preset_seeds("духи")
+    assert "люстра" in preset_seeds("Свет: люстры и светильники") and "люстра" in preset_seeds("освещение")
+    assert "кондиционер" in preset_seeds("кондиционеры") and "матрас" in preset_seeds("Матрасы")

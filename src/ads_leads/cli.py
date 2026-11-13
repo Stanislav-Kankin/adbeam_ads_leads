@@ -24,6 +24,8 @@ def main(argv: list[str] | None = None) -> None:
     web.add_argument("--open", action="store_true", help="открыть браузер")
 
     sub.add_parser("init-db", help="создать таблицы БД")
+    bk = sub.add_parser("backup", help="копия БД в data/backups (хранятся последние 30)")
+    bk.add_argument("--keep", type=int, default=30)
 
     sq = sub.add_parser("suggest-queries", help="подобрать коммерческие запросы ниши из базы Keys.so")
     sq.add_argument("niche", help="название ниши, например «сантехника» (для известных ниш есть готовые семена)")
@@ -51,6 +53,10 @@ def main(argv: list[str] | None = None) -> None:
             f.write("запрос\tчастотность (!точная, мес)\tгруппа\n")
             f.writelines(f"{s.text}\t{s.freq}\t{s.seed}\n" for s in res)
         print(f"Готово: {len(res)} запросов → {out}")
+    elif args.command == "backup":
+        from ads_leads.db import backup_db
+
+        print(f"Бэкап: {backup_db(keep=args.keep)}")
     elif args.command == "init-db":
         from ads_leads.db import init_db
 

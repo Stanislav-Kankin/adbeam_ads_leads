@@ -23,21 +23,29 @@
 <div class="card">
   <div class="table-wrap">
   <table>
-    <thead><tr><th>Ниша</th><th>Регионы</th><th class="num">Запросов</th><th class="num">Рекламодателей</th><th class="num">С ИНН</th><th></th></tr></thead>
+    <thead><tr><th>Ниша</th><th>Регионы</th><th class="num">Запросов</th><th class="num">Компаний</th>
+      <th class="num">С ИНН</th>
+      <th class="num" title="Не маркетплейсы и не сервисы, прогноз бюджета Keys.so от {{ min_budget|num }} ₽/мес">Директ от {{ (min_budget / 1000)|int }} тыс.</th>
+      <th class="num">A</th><th class="num">B</th><th class="num">Отобрано</th><th></th></tr></thead>
     <tbody>
-    {% for n in niches %}
+    {% for n in niches %}{% set s = stats[n.id] %}
     <tr>
       <td><a class="domain" href="/niches/{{ n.id }}">{{ n.name }}</a></td>
       <td class="muted small">{{ region_names(n.region_codes) }}</td>
       <td class="num">{{ n.queries|length }}</td>
-      <td class="num">{{ n.companies|length }}</td>
-      <td class="num">{{ n.companies|selectattr('inn')|list|length }}</td>
+      <td class="num">{{ s.companies }}</td>
+      <td class="num">{{ s.with_inn }}</td>
+      <td class="num"><b>{{ s.budget_ok }}</b>{% if s.companies and s.budget_ok < 50 %} <span class="badge warn" title="Для гипотезы нужно около 50 компаний на нишу">мало</span>{% endif %}</td>
+      <td class="num">{{ s.A }}</td>
+      <td class="num">{{ s.B }}</td>
+      <td class="num">{{ s.picked }}</td>
       <td style="text-align:right"><a class="btn dark sm" href="/niches/{{ n.id }}">Открыть</a></td>
     </tr>
     {% endfor %}
     </tbody>
   </table>
   </div>
+  <p class="muted small" style="margin:10px 0 0">Ниша подходит под гипотезу, если в ней около 50 компаний с Директом от {{ min_budget|num }} ₽/мес (прогноз Keys.so). A и B считаются по компаниям с ИНН или контактами.</p>
 </div>
 {% else %}
 <div class="card empty">Ниш пока нет. Создайте первую — например, «сантехника».</div>

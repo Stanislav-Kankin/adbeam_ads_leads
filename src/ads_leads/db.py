@@ -1,7 +1,10 @@
 """Подключение к БД (SQLite по умолчанию)."""
 
+import sqlite3
 from collections.abc import Iterator
+from datetime import datetime
 from functools import lru_cache
+from pathlib import Path
 
 from sqlalchemy import Engine, create_engine, event, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -57,6 +60,20 @@ def _add_missing_columns(engine: Engine) -> None:
                 if col.server_default is not None:
                     ddl += f" DEFAULT '{col.server_default.arg}'"
                 conn.execute(text(ddl))
+
+
+def backup_db(keep: int = 30) -> Path:
+    """Согласованная копия SQLite (с учётом WAL) в data/backups; старые сверх keep удаляются."""
+    settings = get_settings()
+    src_path = Path(settings.db_url.removeprefix("sqlite:///"))
+    target_dir = settings.data_dir / "backups"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / f"ads_leads_{datetime.now():%Y-%m-%d_%H%M%S}.db"
+    with sqlite3.connect(src_path) as src, sqlite3.connect(target) as dst:
+        src.backup(dst)
+    for old in sorted(target_dir.glob("ads_leads_*.db"))[:-keep]:
+        old.unlink()
+    return target
 
 
 def get_session() -> Iterator[Session]:
