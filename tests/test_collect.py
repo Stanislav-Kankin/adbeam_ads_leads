@@ -148,11 +148,23 @@ def test_crawl_and_pagination(app_client):
     c.post("/niches/1/queries", data={"queries": "купить смеситель grohe"})
     c.post("/niches/1/collect")
     page = c.post("/niches/1/crawl").text
-    assert "Готово: 2 сайтов, ИНН найден у 1, 1 с защитой от ботов" in page
+    assert "Готово: 2 сайтов, ИНН найден у 1, 1 не пустила защита от ботов" in page
     assert "7724419293" in page and "Roistat" in page and "защита от ботов" in page
     assert "ozon.ru" not in page.split('id="step-3"')[1]  # исключённые не обходим
     # повторный запуск проверяет только новые и заблокированные (santeh.ru)
     assert "Готово: 1 сайтов" in c.post("/niches/1/crawl").text
+
+    # фильтр «защита» и ручной ввод ИНН
+    page = c.get("/niches/1?f3=blocked").text.split('id="step-3"')[1]
+    assert "santeh.ru" in page and "santehnika-online.ru" not in page
+    sid = c.get("/niches/1?f3=blocked").text.split('action="/companies/')[1].split("/")[0]
+    assert "Неверный ИНН" in c.post(f"/companies/{sid}/inn", data={"inn": "1234567890", "next": "/niches/1"}).text
+    c.post(f"/companies/{sid}/inn", data={"inn": " 7707083893 ", "legal_name": "ООО Ручное", "next": "/niches/1"})
+    page = c.get("/niches/1?f3=inn").text.split('id="step-3"')[1]
+    assert "7707083893" in page and "ООО Ручное" in page and "вручную" in page
+    # повторный обход не затирает ручной ИНН
+    c.post("/niches/1/crawl", data={"recheck": "1"})
+    assert "7707083893" in c.get("/niches/1?f3=inn").text
 
     # пагинация: 25 доменов вручную → 2 страницы по 20
     c.post("/niches/1/companies", data={"domains": chr(10).join(f"site{i}.ru" for i in range(25))})

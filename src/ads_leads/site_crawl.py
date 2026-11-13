@@ -180,6 +180,12 @@ class Page:
 Fetcher = Callable[[str], "tuple[Page | None, str | None]"]  # url → (страница, ошибка)
 
 
+TITLE_RE = re.compile(r"<title[^>]*>([^<]{0,120})</title>")
+BLOCK_TITLES = {"проверка", "проверка браузера", "доступ ограничен", "доступ запрещён", "доступ запрещен", "forbidden",
+                "403 forbidden", "access denied", "just a moment...", "attention required!", "ddos-guard",
+                "один момент…", "один момент...", "please wait...", "captcha"}
+
+
 def _looks_blocked(page: Page) -> bool:
     """Заглушка защиты: маркер в начале страницы или код 403/429 на небольшой странице.
 
@@ -187,6 +193,9 @@ def _looks_blocked(page: Page) -> bool:
     """
     small = len(page.html) < 60000
     head = page.html[:8000].lower() if page.is_html else ""
+    title = TITLE_RE.search(head)
+    if title and title.group(1).strip() in BLOCK_TITLES:  # заглушка бывает и большой (BotHunt ~110 КБ)
+        return True
     if small and any(m in head for m in BLOCK_MARKERS):
         return True
     return page.status in BLOCK_STATUSES and small
@@ -312,6 +321,8 @@ class BrowserCrawler:
     Использовать из одного потока: with BrowserCrawler() as b: b.crawl("site.ru")
     """
 
+    mode = "—"  # как реально запущен браузер: «окно», «окно в Xvfb», «без окна»
+
     def __init__(self, headless: bool = False):
         # Видимое окно проходит больше защит (BotHunt и др.). На сервере без экрана — через Xvfb (см. Dockerfile).
         self.headless = headless
@@ -322,12 +333,15 @@ class BrowserCrawler:
         self._pw = sync_playwright().start()
         try:
             headless, env = self.headless, None
+            self.mode = "без окна" if headless else "окно"
             if not headless and sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
                 display = _ensure_xvfb()  # сервер без экрана: поднимаем виртуальный дисплей
                 if display:
                     env = {**os.environ, "DISPLAY": display}
+                    self.mode = "окно в виртуальном дисплее"
                 else:
                     headless = True  # Xvfb нет — работаем без окна (часть защит не пройдём)
+                    self.mode = "без окна (Xvfb не найден)"
             self._browser = self._pw.chromium.launch(
                 headless=headless, env=env,
                 args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"],

@@ -83,6 +83,8 @@ class Company(Base):
     # Обход сайта (шаг 3)
     site_status: Mapped[str | None] = mapped_column(String(20))  # ok | blocked | down
     site_error: Mapped[str | None] = mapped_column(String(200))
+    site_method: Mapped[str | None] = mapped_column(String(20))  # http | browser | manual
+    inn_manual: Mapped[bool | None] = mapped_column(default=False)  # ИНН введён вручную — обход его не трогает
     site_url: Mapped[str | None] = mapped_column(String(500))
     site_title: Mapped[str | None] = mapped_column(String(300))
     inn_candidates: Mapped[str | None] = mapped_column(String(200))  # все валидные ИНН с сайта через запятую

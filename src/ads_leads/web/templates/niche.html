@@ -156,6 +156,11 @@
   {{ job_box(crawl_job, 'step-3') }}
 
   {% if checked_total %}
+  <div class="row filters" style="margin-top:14px">
+    {% for key, label, cnt in site_filters %}
+    <a class="pg {{ 'on' if key == f3 }}" href="{{ page_url(request, 'p3', 1, site_page.per, 'step-3', f3=key) }}">{{ label }} · {{ cnt }}</a>
+    {% endfor %}
+  </div>
   <div class="table-wrap" style="margin-top:12px">
   <table>
     <thead><tr><th>#</th><th>Домен</th><th>ИНН / юрлицо</th><th>Контакты</th><th>Сигналы</th></tr></thead>
@@ -165,12 +170,24 @@
       <td class="muted small">{{ site_page.offset + loop.index }}</td>
       <td><a class="domain" href="{{ c.site_url or 'https://' ~ c.domain }}" target="_blank" rel="noopener">{{ c.domain }}</a>
         {% if c.site_status == 'blocked' %}<br><span class="badge warn" title="{{ c.site_error }}">защита от ботов</span>
+          {% if c.site_method == 'browser' %}<br><span class="muted small">браузер не прошёл</span>{% endif %}
         {% elif c.site_status == 'down' %}<br><span class="badge err" title="{{ c.site_error }}">не открылся</span>
-        {% elif not c.site_checked_at %}<br><span class="badge info">не проверен</span>{% endif %}
+        {% elif not c.site_checked_at %}<br><span class="badge info">не проверен</span>
+        {% elif c.site_method == 'browser' %}<br><span class="badge ok">через браузер</span>{% endif %}
       </td>
       <td class="cell-list">
-        {% if c.inn %}<b>{{ c.inn }}</b>{% if c.inn_candidates and ',' in c.inn_candidates %} <span class="muted" title="Другие ИНН на сайте: {{ c.inn_candidates }}">+{{ c.inn_candidates.split(',')|length - 1 }}</span>{% endif %}<br>{% elif c.site_status == 'ok' %}<span class="muted">ИНН не найден</span><br>{% endif %}
+        {% if c.inn %}<b>{{ c.inn }}</b>{% if c.inn_manual %} <span class="badge info">вручную</span>{% endif %}{% if c.inn_candidates and ',' in c.inn_candidates and not c.inn_manual %} <span class="muted" title="Другие ИНН на сайте: {{ c.inn_candidates }}">+{{ c.inn_candidates.split(',')|length - 1 }}</span>{% endif %}<br>{% elif c.site_status == 'ok' %}<span class="muted">ИНН не найден</span><br>{% endif %}
         {{ c.legal_name or '' }}
+        {% if not c.inn and c.site_checked_at %}
+        <details class="inn-form"><summary class="small">указать ИНН</summary>
+          <form method="post" action="/companies/{{ c.id }}/inn" class="row" style="gap:6px;margin-top:6px">
+            <input name="inn" placeholder="ИНН" required style="width:130px;padding:6px 10px">
+            <input name="legal_name" placeholder="Юрлицо (необязательно)" style="width:190px;padding:6px 10px">
+            <input type="hidden" name="next" value="{{ request.url.path }}?{{ request.url.query }}">
+            <button class="dark sm">OK</button>
+          </form>
+        </details>
+        {% endif %}
       </td>
       <td class="cell-list">
         {% for p in c.phone_list[:2] %}<span class="nowrap">{{ p }}</span><br>{% endfor %}

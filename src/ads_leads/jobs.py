@@ -161,7 +161,7 @@ def crawl_sites(job_id: int, crawler: Callable[[str], SiteResult] | None = None,
                         res = fut.result()
                     except Exception as exc:  # noqa: BLE001
                         res = SiteResult(domain=domain, status="down", error=str(exc)[:200])
-                    _apply_site(by_domain[domain], res)
+                    _apply_site(by_domain[domain], res, method="http")
                     stats[res.status] += 1
                     stats["inn"] += bool(res.inn)
                     db.commit()
@@ -170,12 +170,15 @@ def crawl_sites(job_id: int, crawler: Callable[[str], SiteResult] | None = None,
             if blocked and use_browser and browser_available():
                 stats = _browser_pass(db, job, blocked, stats)
             msg = f"Готово: {total} сайтов, ИНН найден у {stats['inn']}"
-            if stats["browser_ok"]:
-                msg += f" (из них {stats['browser_ok']} через браузер в обход защиты)"
             if stats["blocked"]:
-                msg += f", {stats['blocked']} с защитой от ботов"
+                msg += f", {stats['blocked']} не пустила защита от ботов"
             if stats["down"]:
                 msg += f", {stats['down']} не открылись"
+            if stats["browser_tried"]:
+                msg += (f". Браузер ({stats['browser_mode']}): прошёл {stats['browser_ok']} "
+                        f"из {stats['browser_tried']} сайтов с защитой")
+            elif stats["browser_error"]:
+                msg += f". Браузер не запустился: {stats['browser_error']}"
             _update(db, job, status="done", progress=100, message=msg)
         except Exception as exc:  # noqa: BLE001
             log.exception("Задача %s упала", job_id)
@@ -188,16 +191,26 @@ def _browser_pass(db: Session, job: Job, companies: list[Company], stats: Counte
     n = len(companies)
     try:
         with BrowserCrawler() as browser:
+            stats["browser_mode"] = browser.mode
             for i, company in enumerate(companies, 1):
+                stats["browser_tried"] += 1
                 _update(db, job, progress=int(i / n * 100),
                         message=f"Обхожу защиту через браузер: {i} из {n} — {company.domain}")
                 try:
                     res = browser.crawl(company.domain)
                 except Exception as exc:  # noqa: BLE001
                     log.warning("Браузер %s: %s", company.domain, exc)
+                    company.site_method = "browser"
+                    company.site_error = f"браузер: {exc.__class__.__name__}"
+                    db.commit()
+                    continue
+                if res.status != "ok":
+                    company.site_method = "browser"
+                    company.site_error = res.error or "браузер не прошёл защиту"
+                    db.commit()
                     continue
                 if res.status == "ok":
-                    _apply_site(company, res)
+                    _apply_site(company, res, method="browser")
                     stats["blocked"] -= 1
                     stats["ok"] += 1
                     stats["inn"] += bool(res.inn)
@@ -205,10 +218,12 @@ def _browser_pass(db: Session, job: Job, companies: list[Company], stats: Counte
                     db.commit()
     except Exception as exc:  # noqa: BLE001 — нет браузера/дисплея: оставляем результат обычного обхода
         log.warning("Браузер недоступен: %s", exc)
+        stats["browser_error"] = str(exc).splitlines()[0][:150] if str(exc) else exc.__class__.__name__
     return stats
 
 
-def _apply_site(company: Company, res: SiteResult) -> None:
+def _apply_site(company: Company, res: SiteResult, method: str = "http") -> None:
+    company.site_method = method
     company.site_status = res.status
     company.site_error = res.error
     company.site_url = res.final_url
@@ -217,9 +232,11 @@ def _apply_site(company: Company, res: SiteResult) -> None:
     if res.status != "ok":
         return
     # сайт открылся — его данные актуальнее прежних (ИНН оставляем, если в этот раз не нашёлся)
-    company.inn = res.inn or company.inn
+    if not company.inn_manual:
+        company.inn = res.inn or company.inn
     company.inn_candidates = ",".join(res.inn_candidates) or None
-    company.legal_name = res.legal_name
+    if not company.inn_manual:
+        company.legal_name = res.legal_name
     company.emails = "; ".join(res.emails) or None
     company.phones = "; ".join(res.phones) or None
     company.socials = "; ".join(res.socials) or None

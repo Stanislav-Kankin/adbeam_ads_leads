@@ -54,6 +54,7 @@ def test_block_page_detection():
     assert _looks_blocked(Page("u", 200, "<h1>Forbidden</h1><p>If you are not a bot, please copy the report</p>"))
     assert _looks_blocked(Page("u", 403, "<title>Доступ ограничен</title>" + "x" * 15000))
     assert _looks_blocked(Page("u", 429, "<html>Too many</html>"))
+    assert _looks_blocked(Page("u", 403, "<html><head><title>Проверка</title></head>" + "x" * 110000))  # BotHunt
     # браузер прошёл проверку: большая страница сайта, а код 403 остался от первого ответа
     assert not _looks_blocked(Page("u", 403, "<title>Купить сантехнику</title>" + "x" * 150000))
     assert not _looks_blocked(Page("u", 200, "<title>Сантехника</title><p>ИНН 7724419293</p>"))
