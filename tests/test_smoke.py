@@ -54,9 +54,10 @@ def test_niche_flow(client):
     assert client.get("/niches/999").status_code == 404
 
 
-def test_basic_auth(tmp_path, monkeypatch):
+def test_login(tmp_path, monkeypatch):
     monkeypatch.setenv("ADS_LEADS_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("ADS_LEADS_AUTH_PASSWORD", "secret")
+    monkeypatch.setenv("ADS_LEADS_AUTH_USERS", "stas:pw1, nonna:pw2")
     from ads_leads import config, db
 
     config.get_settings.cache_clear()
@@ -64,11 +65,31 @@ def test_basic_auth(tmp_path, monkeypatch):
     from ads_leads.web.app import app
 
     try:
-        with TestClient(app) as c:
-            assert c.get("/health").status_code == 200  # проверка живости без пароля
-            assert c.get("/").status_code == 401
-            assert c.get("/", auth=("adbeam", "wrong")).status_code == 401
-            assert c.get("/", auth=("adbeam", "secret")).status_code == 200
+        with TestClient(app) as anon:
+            assert anon.get("/health").status_code == 200  # проверка живости без входа
+            r = anon.get("/niches/1", follow_redirects=False)
+            assert r.status_code == 303 and r.headers["location"].startswith("/login?next=")
+            assert anon.post("/login", data={"login": "stas", "password": "bad"}).status_code == 401
+            # внешний next не принимаем
+            r = anon.post("/login", data={"login": "stas", "password": "pw1", "next": "//evil.com"},
+                          follow_redirects=False)
+            assert r.headers["location"] == "/"
+
+        # два пользователя одновременно видят одни и те же данные
+        with TestClient(app) as stas, TestClient(app) as nonna:
+            stas.post("/login", data={"login": "stas", "password": "pw1"})
+            nonna.post("/login", data={"login": "nonna", "password": "pw2"})
+            stas.post("/niches", data={"name": "сантехника"})
+            page = nonna.get("/")
+            assert "сантехника" in page.text and "nonna" in page.text
+            assert "сантехника" in stas.get("/").text  # stas не выкинуло после входа nonna
+            # общий логин тоже работает
+            with TestClient(app) as shared:
+                shared.post("/login", data={"login": "adbeam", "password": "secret"})
+                assert shared.get("/").status_code == 200
+            nonna.post("/logout")
+            assert nonna.get("/", follow_redirects=False).status_code == 303
+            assert stas.get("/", follow_redirects=False).status_code == 200
     finally:
         db.get_engine.cache_clear()
         config.get_settings.cache_clear()

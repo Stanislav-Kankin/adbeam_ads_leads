@@ -14,9 +14,11 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8000
 
-    # Вход по логину и паролю (HTTP Basic). Пустой пароль → без входа (локальный запуск).
+    # Вход по логину и паролю. Ни одного пароля → без входа (локальный запуск). См. ads_leads/auth.py.
     auth_user: str = "adbeam"
     auth_password: str = ""
+    auth_users: str = ""  # "stas:pw1,nonna:pw2"
+    secret_key: str = ""  # подпись cookie; пусто → выводится из паролей
 
     keyso_api_token: str = ""
     keyso_base: str = "msk"  # регион базы Keys.so (Москва)

@@ -3,7 +3,7 @@
 from collections.abc import Iterator
 from functools import lru_cache
 
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from ads_leads.config import get_settings
@@ -16,8 +16,19 @@ class Base(DeclarativeBase):
 @lru_cache
 def get_engine(url: str | None = None) -> Engine:
     url = url or get_settings().db_url
-    connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
-    return create_engine(url, connect_args=connect_args)
+    if not url.startswith("sqlite"):
+        return create_engine(url)
+    engine = create_engine(url, connect_args={"check_same_thread": False, "timeout": 30})
+
+    @event.listens_for(engine, "connect")
+    def _sqlite_pragmas(dbapi_conn, _):
+        # WAL: чтение не блокирует запись — несколько человек работают одновременно.
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA foreign_keys=ON")
+        cur.close()
+
+    return engine
 
 
 def init_db(engine: Engine | None = None) -> None:

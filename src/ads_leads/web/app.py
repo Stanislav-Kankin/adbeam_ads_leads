@@ -4,19 +4,18 @@
 запросы → рекламодатели → сайты и ИНН → Контур.Продажи → досье.
 """
 
-import base64
-import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from ads_leads import __version__
+from ads_leads import __version__, auth
 from ads_leads.config import get_settings
 from ads_leads.db import get_session, init_db
 from ads_leads.domains import normalize_domain
@@ -35,29 +34,72 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="AdBeam Leads", version=__version__, lifespan=lifespan)
 
 
+PUBLIC_PATHS = {"/login", "/health"}
+
+
 @app.middleware("http")
-async def basic_auth(request: Request, call_next):
-    """Вход по логину и паролю, если в настройках задан ADS_LEADS_AUTH_PASSWORD."""
+async def require_login(request: Request, call_next):
+    """Пускает только вошедших, если в .env заданы пароли. Данные у всех пользователей общие."""
     settings = get_settings()
-    if not settings.auth_password or request.url.path == "/health":
+    request.state.user = None
+    if not auth.get_users(settings):
         return await call_next(request)
-    header = request.headers.get("authorization", "")
-    if header.lower().startswith("basic "):
-        try:
-            user, _, password = base64.b64decode(header[6:]).decode("utf-8").partition(":")
-        except (ValueError, UnicodeDecodeError):
-            user, password = "", ""
-        if secrets.compare_digest(user.encode(), settings.auth_user.encode()) and secrets.compare_digest(
-            password.encode(), settings.auth_password.encode()
-        ):
-            return await call_next(request)
-    return Response(
-        "Нужен логин и пароль", status_code=401, headers={"WWW-Authenticate": 'Basic realm="AdBeam Leads"'}
+    request.state.user = auth.read_session(settings, request.cookies.get(auth.COOKIE_NAME))
+    if request.state.user or request.url.path in PUBLIC_PATHS:
+        return await call_next(request)
+    target = request.url.path + (f"?{request.url.query}" if request.url.query else "")
+    return RedirectResponse(f"/login?next={quote(target)}", status_code=303)
+
+
+def _safe_next(value: str | None) -> str:
+    return value if value and value.startswith("/") and not value.startswith("//") else "/"
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request, next: str = "/"):
+    if request.state.user or not auth.get_users(get_settings()):
+        return RedirectResponse(_safe_next(next), status_code=303)
+    return templates.TemplateResponse(request, "login.html", {"next": _safe_next(next), "error": None})
+
+
+@app.post("/login", response_class=HTMLResponse)
+def login_submit(
+    request: Request,
+    login: Annotated[str, Form()],
+    password: Annotated[str, Form()],
+    next: Annotated[str, Form()] = "/",
+):
+    settings = get_settings()
+    if not auth.check_credentials(settings, login, password):
+        return templates.TemplateResponse(
+            request,
+            "login.html",
+            {"next": _safe_next(next), "error": "Неверный логин или пароль", "login": login},
+            status_code=401,
+        )
+    response = RedirectResponse(_safe_next(next), status_code=303)
+    https = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
+    response.set_cookie(
+        auth.COOKIE_NAME,
+        auth.make_session(settings, login.strip()),
+        max_age=auth.SESSION_TTL,
+        httponly=True,
+        samesite="lax",
+        secure=https,
     )
+    return response
+
+
+@app.post("/logout")
+def logout():
+    response = RedirectResponse("/login", status_code=303)
+    response.delete_cookie(auth.COOKIE_NAME)
+    return response
 
 
 def _render(request: Request, name: str, **context) -> HTMLResponse:
     context.setdefault("keyso_ready", bool(get_settings().keyso_api_token))
+    context.setdefault("user", getattr(request.state, "user", None))
     return templates.TemplateResponse(request, name, context)
 
 

@@ -53,6 +53,12 @@
     {% if keyso_ready %}<span class="badge ok">Keys.so подключён</span>
     {% else %}<span class="badge soon" title="Укажите ADS_LEADS_KEYSO_API_TOKEN в файле .env">Keys.so не подключён</span>{% endif %}
   </span>
+  {% if user %}
+  <form method="post" action="/logout" style="display:flex;gap:10px;align-items:center;margin:0">
+    <span style="color:#cbd5e1;font-size:13px">{{ user }}</span>
+    <button style="background:none;border:1px solid #475569;color:#cbd5e1;padding:4px 10px;font-size:12px">Выйти</button>
+  </form>
+  {% endif %}
 </header>
 <main>{% block content %}{% endblock %}</main>
 </body>

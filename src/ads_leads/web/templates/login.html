@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Вход · AdBeam Leads</title>
+  <style>
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:16px;
+           font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; color:#1d2330;
+           background:radial-gradient(1200px 600px at 20% 0%, #1e3a8a 0%, transparent 60%),
+                      radial-gradient(900px 500px at 100% 100%, #0f766e 0%, transparent 55%), #0f172a; }
+    .card { width:100%; max-width:380px; background:#fff; border-radius:16px; padding:36px 32px;
+            box-shadow:0 20px 60px rgba(0,0,0,.35); }
+    .logo { display:flex; align-items:center; gap:10px; margin-bottom:28px; }
+    .logo .mark { width:36px; height:36px; border-radius:10px; background:linear-gradient(135deg,#2563eb,#14b8a6);
+                  color:#fff; font-weight:700; display:flex; align-items:center; justify-content:center; }
+    .logo b { font-size:18px; }
+    h1 { font-size:22px; margin:0 0 6px; }
+    p.sub { color:#6b7280; margin:0 0 24px; font-size:14px; }
+    label { display:block; font-size:13px; color:#374151; margin:0 0 6px; font-weight:500; }
+    input { width:100%; font:inherit; padding:11px 14px; border:1px solid #d1d5db; border-radius:10px; margin-bottom:16px;
+            outline:none; transition:border-color .15s, box-shadow .15s; }
+    input:focus { border-color:#2563eb; box-shadow:0 0 0 3px rgba(37,99,235,.15); }
+    button { width:100%; font:inherit; font-weight:600; padding:12px; border:0; border-radius:10px; cursor:pointer;
+             color:#fff; background:linear-gradient(135deg,#2563eb,#1d4ed8); margin-top:4px; }
+    button:hover { filter:brightness(1.07); }
+    .error { background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; border-radius:10px; padding:10px 12px;
+             font-size:14px; margin-bottom:16px; }
+  </style>
+</head>
+<body>
+  <form class="card" method="post" action="/login">
+    <div class="logo"><span class="mark">A</span><b>AdBeam Leads</b></div>
+    <h1>Вход</h1>
+    <p class="sub">База рекламодателей и досье по нишам</p>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <input type="hidden" name="next" value="{{ next }}">
+    <label for="login">Логин</label>
+    <input id="login" name="login" value="{{ login or '' }}" autocomplete="username" required {% if not login %}autofocus{% endif %}>
+    <label for="password">Пароль</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required {% if login %}autofocus{% endif %}>
+    <button>Войти</button>
+  </form>
+</body>
+</html>
