@@ -81,3 +81,44 @@ def test_upload_flow(tmp_path, monkeypatch):
     finally:
         db.get_engine.cache_clear()
         config.get_settings.cache_clear()
+
+
+def test_dossier(tmp_path, monkeypatch):
+    monkeypatch.setenv("ADS_LEADS_DATA_DIR", str(tmp_path))
+    from ads_leads import config, db
+    from ads_leads.web.app import app
+
+    config.get_settings.cache_clear()
+    db.get_engine.cache_clear()
+    try:
+        with TestClient(app) as c:
+            c.post("/niches", data={"name": "сантехника"})
+            c.post("/niches/1/companies", data={"domains": "santeh.ru\nmailonly.ru\nempty.ru"})
+            with db.get_engine().begin() as conn:
+                conn.exec_driver_sql(
+                    "update companies set inn='7724419293', signals='metrika,roistat', emails='a@santeh.ru', "
+                    "ad_cost=67392714 where domain='santeh.ru'")
+                conn.exec_driver_sql("update companies set emails='info@mailonly.ru' where domain='mailonly.ru'")
+            c.post("/niches/1/kontur/upload", files={"file": ("k.xlsx", make_xlsx(ROWS))})
+            page = c.get("/niches/1").text.split('id="step-5"')[1]
+            assert "A · 1" in page and "без ИНН, но с контактами: 1" in page and "без контактов и ИНН: 1" in page
+
+            resp = c.get("/niches/1/dossier.xlsx")
+            wb = openpyxl.load_workbook(io.BytesIO(resp.content))
+            assert wb.sheetnames == ["Досье", "Сводка", "Без контактов"]
+            ws = wb["Досье"]
+            header = [x.value for x in ws[1]]
+            assert header[:12] == ["Сайт", "Название компании", "Почты с сайта", "Почты из Контура", "Телефоны с сайта",
+                                   "Телефоны из Контура", "Траты на Директ, ₽/мес (оценка Keys.so)", "Сигналы",
+                                   "Выручка (оборот), млн ₽", "Чистая прибыль, млн ₽", "Баланс, млн ₽", "Ниша"]
+            rows = {r[0]: r for r in ws.iter_rows(min_row=2, values_only=True)}
+            s = rows["santeh.ru"]
+            assert s[1] == 'ООО "Сантех"' and s[2] == "a@santeh.ru" and s[3] == "a@santeh.ru\nb@santeh.ru"
+            assert s[6] == 20217814 and "Roistat" in s[7] and s[8] == 1703.1 and s[11] == "сантехника" and s[12] == "A"
+            assert "mailonly.ru" in rows and rows["mailonly.ru"][2] == "info@mailonly.ru"  # без ИНН, но с почтой
+            assert "empty.ru" not in rows
+            assert [r[0] for r in wb["Без контактов"].iter_rows(min_row=2, values_only=True)] == ["empty.ru"]
+            assert c.get("/companies/dossier.xlsx").status_code == 200
+    finally:
+        db.get_engine.cache_clear()
+        config.get_settings.cache_clear()

@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session, selectinload
 from ads_leads import __version__, auth, jobs
 from ads_leads.config import get_settings
 from ads_leads.db import get_session, init_db
+from ads_leads.export import build_dossier, collect_rows, priority
 from ads_leads.kontur import KonturFormatError, build_inn_xlsx, parse_kontur_xlsx
 from ads_leads.domains import normalize_domain
 from ads_leads.models import Company, Job, Niche, NicheQuery, Source
@@ -231,13 +232,15 @@ def niche_page(request: Request, db: DbSession, niche_id: int, per: int = 20, p2
     advertisers, excluded = _advertiser_rows(niche)
     checked = [r for r in advertisers if r["company"].site_checked_at]
     with_inn = sum(1 for r in advertisers if r["company"].inn)
+    dossier_main, dossier_rest = collect_rows([niche])
+    dossier_prio = [priority(r.company)[0] for r in dossier_main]
     steps = [
         {"n": 1, "title": "Запросы", "count": len(niche.queries), "ready": True},
         {"n": 2, "title": "Рекламодатели", "count": len(advertisers), "ready": True},
         {"n": 3, "title": "Сайты: ИНН и сигналы", "count": with_inn, "ready": True},
         {"n": 4, "title": "Контур.Продажи", "count": sum(1 for r in advertisers if r["company"].kontur_loaded_at),
          "ready": True},
-        {"n": 5, "title": "Досье", "count": None, "ready": False},
+        {"n": 5, "title": "Досье", "count": len(dossier_main), "ready": True},
     ]
     return _render(
         request, "niche.html", niche=niche, steps=steps, excluded=excluded,
@@ -252,6 +255,9 @@ def niche_page(request: Request, db: DbSession, niche_id: int, per: int = 20, p2
         kontur_page=_paginate(sorted([r for r in advertisers if r["company"].kontur_loaded_at],
                                      key=lambda r: -(r["company"].revenue or 0)), p4, per),
         inns_for_kontur=_inns_for_kontur(advertisers),
+        dossier={"total": len(dossier_main), "rest": len(dossier_rest), "A": dossier_prio.count("A"),
+                 "B": dossier_prio.count("B"), "C": dossier_prio.count("C"),
+                 "no_inn": sum(1 for r in dossier_main if not r.company.inn)},
         per_options=PER_PAGE_OPTIONS, signal_names=SIGNAL_NAMES, end_to_end=END_TO_END,
     )
 
@@ -381,6 +387,29 @@ async def kontur_upload(request: Request, db: DbSession, niche_id: int, file: An
     job.status, job.progress, job.message, job.finished_at = "done", 100, msg, now
     db.commit()
     return RedirectResponse(f"/niches/{niche_id}#step-4", status_code=303)
+
+
+def _xlsx_response(content: bytes, filename: str) -> Response:
+    return Response(
+        content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
+
+
+@app.get("/niches/{niche_id}/dossier.xlsx")
+def niche_dossier(db: DbSession, niche_id: int):
+    """Шаг 5: итоговое досье по нише."""
+    niche = _get_niche(db, niche_id)
+    stamp = datetime.now().strftime("%Y-%m-%d")
+    return _xlsx_response(build_dossier([niche], f"Ниша «{niche.name}»"), f"Досье — {niche.name} — {stamp}.xlsx")
+
+
+@app.get("/companies/dossier.xlsx")
+def all_dossier(db: DbSession):
+    """Досье по всем нишам сразу (компания в нескольких нишах — одна строка, ниши через запятую)."""
+    niches = list(db.scalars(select(Niche).order_by(Niche.name)))
+    stamp = datetime.now().strftime("%Y-%m-%d")
+    return _xlsx_response(build_dossier(niches, "Все ниши"), f"Досье — все ниши — {stamp}.xlsx")
 
 
 @app.post("/companies/{company_id}/inn", response_class=HTMLResponse)
