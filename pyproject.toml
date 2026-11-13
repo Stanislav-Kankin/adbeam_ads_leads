@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adbeam-ads-leads"
+version = "0.1.0"
+description = "Лидогенерация: рекламодатели ниши → ИНН → Контур → таблица-досье"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "uvicorn[standard]>=0.30,<1.0",
+  "jinja2>=3.1,<4.0",
+  "python-multipart>=0.0.9",
+  "sqlalchemy>=2.0,<3.0",
+  "pydantic>=2.11,<3.0",
+  "pydantic-settings>=2.4,<3.0",
+  "httpx>=0.28.1,<1.0",
+  "selectolax>=0.3.28,<0.4.0",
+  "tenacity>=9.1,<10.0",
+  "tldextract>=5.3,<6.0",
+  "openpyxl>=3.1.5,<4.0",
+]
+
+[project.optional-dependencies]
+browser = ["playwright>=1.52,<2.0"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+ads-leads = "ads_leads.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ads_leads = ["web/templates/*.html", "web/static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

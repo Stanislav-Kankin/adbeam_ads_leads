@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}AdBeam Leads{% endblock %}</title>
+  <style>
+    :root { --bg:#f6f7f9; --card:#fff; --text:#1d2330; --muted:#6b7280; --line:#e5e7eb; --accent:#2563eb; }
+    * { box-sizing: border-box; }
+    body { margin:0; font:14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); }
+    header { background:#1d2330; color:#fff; padding:12px 24px; display:flex; gap:24px; align-items:center; }
+    header a { color:#cbd5e1; text-decoration:none; } header a:hover, header a.on { color:#fff; }
+    header .brand { font-weight:600; color:#fff; }
+    main { max-width:1200px; margin:24px auto; padding:0 16px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:16px; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { text-align:left; padding:8px; border-bottom:1px solid var(--line); vertical-align:top; }
+    th { color:var(--muted); font-weight:500; }
+    input, select, textarea, button { font:inherit; padding:6px 10px; border:1px solid var(--line); border-radius:6px; }
+    button { background:var(--accent); color:#fff; border:0; cursor:pointer; }
+    .muted { color:var(--muted); }
+    form.row { display:flex; gap:8px; flex-wrap:wrap; align-items:flex-start; }
+  </style>
+</head>
+<body>
+<header>
+  <span class="brand">AdBeam Leads</span>
+  <a href="/companies">Компании</a>
+  <a href="/niches">Ниши</a>
+</header>
+<main>{% block content %}{% endblock %}</main>
+</body>
+</html>
