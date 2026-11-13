@@ -8,8 +8,9 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+from ads_leads.filters import exclusion_reason
 from ads_leads.models import Company, Niche
-from ads_leads.site_crawl import END_TO_END, SIGNAL_NAMES
+from ads_leads.site_crawl import END_TO_END, SIGNAL_NAMES, clean_emails, clean_phones
 
 NAVY, YELLOW = "14254E", "F1B62B"
 HEADER_FILL = PatternFill("solid", fgColor=NAVY)
@@ -21,12 +22,12 @@ WRAP = Alignment(wrap_text=True, vertical="top")
 
 # (заголовок, ширина) — первые колонки в порядке, который попросил пользователь
 COLUMNS = [
-    ("Сайт", 26), ("Название компании", 34), ("Почты с сайта", 30), ("Почты из Контура", 30),
+    ("Сайт", 26), ("ИНН", 14), ("Название компании", 34), ("Почты с сайта", 30), ("Почты из Контура", 30),
     ("Телефоны с сайта", 20), ("Телефоны из Контура", 20), ("Траты на Директ, ₽/мес (оценка Keys.so)", 18),
     ("Сигналы", 34), ("Выручка (оборот), млн ₽", 14), ("Чистая прибыль, млн ₽", 14), ("Баланс, млн ₽", 12),
     ("Ниша", 16),
     # справочные
-    ("Приоритет", 10), ("Почему такой приоритет", 34), ("ИНН", 14), ("Руководитель", 28), ("Должность", 22),
+    ("Приоритет", 10), ("Почему такой приоритет", 34), ("Руководитель", 28), ("Должность", 22),
     ("Сотрудники", 11), ("Статус компании", 22), ("МСП", 10), ("Регион", 18), ("Доля запросов ниши, %", 12),
     ("Запросов ниши с рекламой", 12), ("Кликов из Директа в день", 12), ("Соцсети", 30), ("Статус сайта", 14),
 ]
@@ -48,8 +49,17 @@ def _lines(value: str | None) -> str:
     return "\n".join(x for x in (value or "").split("; ") if x)
 
 
+def _emails(value: str | None) -> str:
+    return "\n".join(clean_emails(value))
+
+
+def _phones(value: str | None) -> str:
+    return "\n".join(clean_phones(value))
+
+
 def has_contacts(c: Company) -> bool:
-    return bool(c.emails or c.phones or c.kontur_emails or c.kontur_phones)
+    return bool(clean_emails(c.emails) or clean_phones(c.phones) or clean_emails(c.kontur_emails)
+                or clean_phones(c.kontur_phones))
 
 
 def priority(c: Company) -> tuple[str, str]:
@@ -70,7 +80,7 @@ def priority(c: Company) -> tuple[str, str]:
 
 
 def collect_rows(niches: list[Niche]) -> tuple[list[DossierRow], list[DossierRow]]:
-    """(с контактами или ИНН, без контактов и без ИНН). Исключённые домены (маркетплейсы и т.п.) не попадают."""
+    """(с ИНН или с контактами — лист «Досье», без ИНН и без контактов). Исключённые домены не попадают."""
     rows: dict[int, DossierRow] = {}
     for niche in niches:
         excluded = {a.company_id for a in niche.advertisers if a.excluded}
@@ -81,7 +91,7 @@ def collect_rows(niches: list[Niche]) -> tuple[list[DossierRow], list[DossierRow
                 if best is None or a.share > best[0]:
                     stats[a.company_id] = (a.share, a.keys_cnt)
         for c in niche.companies:
-            if c.id in excluded:
+            if c.id in excluded or exclusion_reason(c.domain):  # список исключений мог пополниться после сбора
                 continue
             row = rows.setdefault(c.id, DossierRow(company=c, niches=[]))
             row.niches.append(niche.name)
@@ -102,10 +112,10 @@ def _values(r: DossierRow) -> list:
     site_status = {"ok": "открыт", "blocked": "защита от ботов", "down": "не открылся"}.get(c.site_status or "",
                                                                                            "не проверен")
     return [
-        c.domain, c.kontur_name or c.legal_name or "", _lines(c.emails), _lines(c.kontur_emails), _lines(c.phones),
-        _lines(c.kontur_phones), c.ad_budget_month, signals, _mln(c.revenue), _mln(c.profit), _mln(c.balance),
+        c.domain, c.inn or "", c.kontur_name or c.legal_name or "", _emails(c.emails), _emails(c.kontur_emails), _phones(c.phones),
+        _phones(c.kontur_phones), c.ad_budget_month, signals, _mln(c.revenue), _mln(c.profit), _mln(c.balance),
         ", ".join(r.niches),
-        prio, why, c.inn or "", c.director_name or "", c.director_post or "", c.employees, c.legal_status or "",
+        prio, why, c.director_name or "", c.director_post or "", c.employees, c.legal_status or "",
         c.msp or "", c.region or "", round(r.share, 1) if r.share is not None else None, r.keys_cnt,
         c.ad_traffic, _lines(c.socials), site_status,
     ]
@@ -126,13 +136,14 @@ def _write_sheet(ws, rows: list[DossierRow]) -> None:
         ws.cell(row=n, column=1).font = Font(color="1F4E9E", underline="single")
         for col in range(1, len(COLUMNS) + 1):
             ws.cell(row=n, column=col).alignment = WRAP
-        prio_cell = ws.cell(row=n, column=13)
+        ws.cell(row=n, column=2).number_format = "@"
+        prio_cell = ws.cell(row=n, column=14)
         prio_cell.fill = PRIORITY_FILLS.get(prio_cell.value, PatternFill())
         prio_cell.font = Font(bold=True)
         if set(r.company.signal_list) & END_TO_END:
-            ws.cell(row=n, column=8).fill = E2E_FILL
-        for col in (7, 9, 10, 11, 18, 24):
-            ws.cell(row=n, column=col).number_format = "#,##0.#" if col in (9, 10, 11) else "#,##0"
+            ws.cell(row=n, column=9).fill = E2E_FILL
+        for col in (8, 10, 11, 12, 18, 24):
+            ws.cell(row=n, column=col).number_format = "#,##0.#" if col in (10, 11, 12) else "#,##0"
     ws.freeze_panes = "B2"
     ws.auto_filter.ref = f"A1:{get_column_letter(len(COLUMNS))}{max(ws.max_row, 1)}"
 
@@ -151,10 +162,10 @@ def build_dossier(niches: list[Niche], title: str) -> bytes:
         ("Компаний в досье (есть ИНН или контакты)", len(main)), ("Приоритет A", prios.count("A")),
         ("Приоритет B", prios.count("B")), ("Приоритет C", prios.count("C")),
         ("С ИНН", sum(1 for r in main if r.company.inn)),
-        ("Без ИНН, но с контактами", sum(1 for r in main if not r.company.inn)),
+        ("Без ИНН, но с почтой или телефоном", sum(1 for r in main if not r.company.inn)),
         ("С данными Контура", sum(1 for r in main if r.company.kontur_loaded_at)),
         ("Со сквозной аналитикой/коллтрекингом", sum(1 for r in main if set(r.company.signal_list) & END_TO_END)),
-        ("Без контактов и ИНН (лист «Без контактов»)", len(rest)), ("", ""),
+        ("Без ИНН и без контактов (лист «Без контактов»)", len(rest)), ("", ""),
         ("Приоритет A", "выручка от 500 млн ₽ + сквозная аналитика/коллтрекинг на сайте, компания действующая"),
         ("Приоритет B", "выручка от 200 млн ₽, или нет данных Контура, но есть сквозная аналитика"),
         ("Приоритет C", "выручка меньше 200 млн ₽, нет данных Контура, банкротство/ликвидация"),

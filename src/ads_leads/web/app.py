@@ -255,8 +255,8 @@ def niche_page(request: Request, db: DbSession, niche_id: int, per: int = 20, p2
         kontur_page=_paginate(sorted([r for r in advertisers if r["company"].kontur_loaded_at],
                                      key=lambda r: -(r["company"].revenue or 0)), p4, per),
         inns_for_kontur=_inns_for_kontur(advertisers),
-        dossier={"total": len(dossier_main), "rest": len(dossier_rest), "A": dossier_prio.count("A"),
-                 "B": dossier_prio.count("B"), "C": dossier_prio.count("C"),
+        dossier={"total": len(dossier_main), "rest": len(dossier_rest),
+                 "A": dossier_prio.count("A"), "B": dossier_prio.count("B"), "C": dossier_prio.count("C"),
                  "no_inn": sum(1 for r in dossier_main if not r.company.inn)},
         per_options=PER_PAGE_OPTIONS, signal_names=SIGNAL_NAMES, end_to_end=END_TO_END,
     )

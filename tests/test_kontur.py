@@ -108,14 +108,16 @@ def test_dossier(tmp_path, monkeypatch):
             assert wb.sheetnames == ["Досье", "Сводка", "Без контактов"]
             ws = wb["Досье"]
             header = [x.value for x in ws[1]]
-            assert header[:12] == ["Сайт", "Название компании", "Почты с сайта", "Почты из Контура", "Телефоны с сайта",
-                                   "Телефоны из Контура", "Траты на Директ, ₽/мес (оценка Keys.so)", "Сигналы",
-                                   "Выручка (оборот), млн ₽", "Чистая прибыль, млн ₽", "Баланс, млн ₽", "Ниша"]
+            assert header[:13] == ["Сайт", "ИНН", "Название компании", "Почты с сайта", "Почты из Контура",
+                                   "Телефоны с сайта", "Телефоны из Контура", "Траты на Директ, ₽/мес (оценка Keys.so)",
+                                   "Сигналы", "Выручка (оборот), млн ₽", "Чистая прибыль, млн ₽", "Баланс, млн ₽", "Ниша"]
+            assert header.count("ИНН") == 1
             rows = {r[0]: r for r in ws.iter_rows(min_row=2, values_only=True)}
             s = rows["santeh.ru"]
-            assert s[1] == 'ООО "Сантех"' and s[2] == "a@santeh.ru" and s[3] == "a@santeh.ru\nb@santeh.ru"
-            assert s[6] == 20217814 and "Roistat" in s[7] and s[8] == 1703.1 and s[11] == "сантехника" and s[12] == "A"
-            assert "mailonly.ru" in rows and rows["mailonly.ru"][2] == "info@mailonly.ru"  # без ИНН, но с почтой
+            assert s[1] == "7724419293" and s[2] == 'ООО "Сантех"' and s[3] == "a@santeh.ru"
+            assert s[4] == "a@santeh.ru\nb@santeh.ru"
+            assert s[7] == 20217814 and "Roistat" in s[8] and s[9] == 1703.1 and s[12] == "сантехника" and s[13] == "A"
+            assert "mailonly.ru" in rows and rows["mailonly.ru"][3] == "info@mailonly.ru"  # без ИНН, но с почтой
             assert "empty.ru" not in rows
             assert [r[0] for r in wb["Без контактов"].iter_rows(min_row=2, values_only=True)] == ["empty.ru"]
             assert c.get("/companies/dossier.xlsx").status_code == 200

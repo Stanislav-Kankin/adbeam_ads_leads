@@ -109,8 +109,7 @@ def inn_is_valid(inn: str) -> bool:
 
 def normalize_phone(value: str) -> str | None:
     digits = re.sub(r"\D", "", value)
-    # мусор: «код» 0xx/1xx или номер из одних нулей (+7 050 000-00-80)
-    if len(digits) == 11 and (digits[1] in "01" or digits[4:].count("0") >= 5):
+    if len(digits) == 11 and is_fake_phone(digits):
         return None
     if len(digits) == 11 and digits[0] in "78":
         digits = "7" + digits[1:]
@@ -118,14 +117,64 @@ def normalize_phone(value: str) -> str | None:
     return None
 
 
-def _useful_email(email: str, domain: str) -> bool:
-    e = email.lower()
+# Российские коды начинаются на 3, 4, 8, 9. 7xx — Казахстан, 0/1/2/5/6 — не бывает.
+RU_CODE_FIRST_DIGITS = "3489"
+FAKE_SUBSCRIBER = {"1234567", "7654321", "0000000", "1111111", "2222222", "3333333", "4444444", "5555555",
+                   "6666666", "7777777", "8888888", "9999999"}
+
+
+def is_fake_phone(digits: str) -> bool:
+    """digits — 11 цифр, начинается с 7/8. Чужие/несуществующие коды и номера-заглушки из шаблонов сайтов."""
+    code, sub = digits[1:4], digits[4:]
+    if code[0] not in RU_CODE_FIRST_DIGITS:
+        return True
+    if sub in FAKE_SUBSCRIBER or len(set(code + sub)) <= 2 or sub.count("0") >= 5:
+        return True
+    return code == "000" or code == "999" and sub.startswith("999")
+
+
+# Почты сервисов, конструкторов, хостингов и счётчиков, которые попадают на сайты из шаблонов и скриптов
+SERVICE_EMAIL_HOSTS = ("beget.com", "beget.ru", "tilda.cc", "tilda.ws", "timeweb.ru", "reg.ru", "nic.ru",
+                       "sprinthost.ru", "jino.ru", "ukit.com", "wix.com", "appsflyer.com", "sentry.io",
+                       "1c-bitrix.ru", "bitrix24.ru", "insales.ru", "ecwid.com", "jivosite.com", "carrotquest.io",
+                       "cloudflare.com", "google.com", "yandex-team.ru", "example.com", "example.ru", "domain.com",
+                       "site.ru", "mysite.ru", "email.com")
+SERVICE_EMAILS = {"rating@mail.ru", "info@mail.ru", "mail@mail.ru", "test@mail.ru", "support@mail.ru",
+                  "info@yandex.ru", "mail@yandex.ru", "user@domain.com", "email@email.com", "info@site.ru",
+                  "example@mail.ru", "name@mail.ru", "ivanov@mail.ru", "your@email.com"}
+BAD_LOCAL_PARTS = {"test", "example", "noreply", "no-reply", "donotreply", "email", "your-email", "name",
+                   "username", "user", "mail.example"}
+
+
+def is_useful_email(email: str) -> bool:
+    e = email.strip().lower()
     local, _, host = e.partition("@")
-    if local in {"test", "example", "noreply", "no-reply", "email", "your-email", "name", "info@example"}:
+    if not host or e in SERVICE_EMAILS or local in BAD_LOCAL_PARTS:
         return False
     if host.startswith("example.") or "sentry" in host or host.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg")):
         return False
-    return True
+    return not any(host == h or host.endswith("." + h) for h in SERVICE_EMAIL_HOSTS)
+
+
+def _useful_email(email: str, domain: str) -> bool:
+    return is_useful_email(email)
+
+
+def clean_emails(value: str | None) -> list[str]:
+    """Для уже сохранённых данных («a@x.ru; b@y.ru»): убираем служебные почты."""
+    return [e for e in (value or "").split("; ") if e and is_useful_email(e)]
+
+
+def clean_phones(value: str | None) -> list[str]:
+    out = []
+    for p in (value or "").replace("\n", "; ").split("; "):
+        digits = re.sub(r"\D", "", p)
+        if not p.strip():
+            continue
+        if len(digits) == 11 and digits[0] in "78" and is_fake_phone(digits):
+            continue
+        out.append(p.strip())
+    return out
 
 
 def _unique(values: list[str], limit: int) -> list[str]:

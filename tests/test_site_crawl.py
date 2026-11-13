@@ -5,7 +5,7 @@ from ads_leads.site_crawl import crawl_site, inn_is_valid, normalize_phone
 HOME = """<html><head><title>Сантех Шоп</title>
 <script src="https://mc.yandex.ru/metrika/tag.js"></script><script>ym(12345678, "init", {});</script>
 <script src="https://cloud.roistat.com/x.js"></script></head>
-<body><a href="/kontakty/">Контакты</a> <a href="tel:+74951234567">звоните</a>
+<body><a href="/kontakty/">Контакты</a> <a href="tel:+74951254040">звоните</a>
 <a href="https://vk.com/santehshop">ВК</a></body></html>"""
 CONTACTS = """<html><body><h1>Реквизиты</h1>
 <p>ООО «Сантех Шоп Плюс», ИНН 7724419293, КПП 772401001. Также ИНН: 1234567890 (опечатка). Сплит: ООО «Яндекс», ИНН 7736207543. АО «ТБанк» — рассрочка.</p>
@@ -37,7 +37,7 @@ def test_crawl_site_extracts_everything():
     assert r.inn == "7724419293" and r.inn_candidates == ["7724419293"]
     assert r.legal_name == 'ООО "Сантех Шоп Плюс"'
     assert r.emails == ["info@santeh.ru"]
-    assert r.phones[:2] == ["+7 495 123-45-67", "+7 800 555-35-35"]
+    assert r.phones[:2] == ["+7 495 125-40-40", "+7 800 555-35-35"]
     assert r.signals == ["metrika", "roistat"]
     assert r.metrika_ids == ["12345678"]
     assert r.socials == ["https://vk.com/santehshop"]
@@ -58,3 +58,17 @@ def test_block_page_detection():
     # браузер прошёл проверку: большая страница сайта, а код 403 остался от первого ответа
     assert not _looks_blocked(Page("u", 403, "<title>Купить сантехнику</title>" + "x" * 150000))
     assert not _looks_blocked(Page("u", 200, "<title>Сантехника</title><p>ИНН 7724419293</p>"))
+
+
+def test_fake_contacts_filtered():
+    from ads_leads.site_crawl import clean_emails, clean_phones, is_useful_email
+
+    assert normalize_phone("+7 495 123-45-67") is None  # шаблонный номер
+    assert normalize_phone("+7 333 333-33-33") is None
+    assert normalize_phone("+7 721 001-29-99") is None  # Казахстан
+    assert normalize_phone("+7 613 425-71-07") is None  # такого кода нет
+    assert normalize_phone("+7 843 204-22-04") == "+7 843 204-22-04"
+    assert not is_useful_email("manager@beget.com") and not is_useful_email("Rating@Mail.ru")
+    assert is_useful_email("kam-brat@mail.ru") and is_useful_email("zakaz@vodoparad.ru")
+    assert clean_emails("info@x.ru; support@beget.com; info@mail.ru") == ["info@x.ru"]
+    assert clean_phones("+7 495 255-15-58; +7 333 333-33-33") == ["+7 495 255-15-58"]

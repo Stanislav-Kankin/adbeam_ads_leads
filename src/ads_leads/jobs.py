@@ -66,7 +66,9 @@ def collect_advertisers(job_id: int, client_factory: ClientFactory | None = None
             with factory() as client:
                 found, excluded = _collect(db, job, niche, queries, bases, client)
                 _update(db, job, progress=85, message="Оцениваю рекламные бюджеты доменов…")
-                _enrich_budgets(db, niche, bases[0], client)
+                done: set[int] = set()
+                for base in bases:  # оценка бюджета в том регионе, где компания нашлась (первый по порядку)
+                    done |= _enrich_budgets(db, niche, base, client, skip=done)
             msg = f"Готово: {found} рекламодателей"
             if excluded:
                 msg += f", ещё {excluded} отброшено (маркетплейсы, агрегаторы, федеральные сети)"
@@ -245,15 +247,17 @@ def _apply_site(company: Company, res: SiteResult, method: str = "http") -> None
     company.metrika_ids = ",".join(res.metrika_ids) or None
 
 
-def _enrich_budgets(db: Session, niche: Niche, base: str, client: KeysoClient) -> None:
+def _enrich_budgets(db: Session, niche: Niche, base: str, client: KeysoClient,
+                    skip: set[int] | None = None) -> set[int]:
+    """Пакетный анализ доменов, найденных в этой базе (кроме уже оценённых). Возвращает id оценённых компаний."""
     advs = db.scalars(
         select(NicheAdvertiser).where(
             NicheAdvertiser.niche_id == niche.id, NicheAdvertiser.base == base, NicheAdvertiser.excluded.is_(None)
         )
     ).all()
-    by_name = {a.keyso_domain: a.company for a in advs}
+    by_name = {a.keyso_domain: a.company for a in advs if a.company_id not in (skip or set())}
     if not by_name:
-        return
+        return set()
     now = datetime.now()
     for row in client.domains_batch(list(by_name), base):
         company = by_name.get(row.get("name"))
@@ -267,3 +271,4 @@ def _enrich_budgets(db: Session, niche: Niche, base: str, client: KeysoClient) -
         company.seo_traffic = row.get("traf")
         company.keyso_updated_at = now
     db.commit()
+    return {c.id for c in by_name.values()}
