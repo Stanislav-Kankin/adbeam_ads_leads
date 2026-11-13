@@ -123,6 +123,19 @@ class KeysoClient:
             )
         )
 
+    def keyword_base(self, filter_text: str, *, per_page: int = 300) -> list[dict]:
+        """«База запросов» Keys.so: фразы с частотностью (wsk — точная, ws — базовая), сортировка по wsk.
+
+        filter_text — синтаксис Keys.so: 'wordLIKEсмеситель купить\\n-авито'. Расходует 1 из 100 в сутки.
+        """
+        data = self._request(
+            "POST",
+            "/report/system_keywords",
+            params={"strict": "false", "hideadult": "true", "sort": "wsk|desc"},
+            json={"params": {"filter": filter_text, "per_page": per_page, "page": 1, "sort": "wsk|desc"}},
+        )
+        return (data or {}).get("data") or []
+
     def domains_batch(self, domains: list[str], base: str) -> list[dict]:
         """Пакетный анализ: adcost (оценка бюджета), adtraf, adkeyscnt, adscnt и SEO-метрики. До 1000 доменов."""
         rows: list[dict] = []
