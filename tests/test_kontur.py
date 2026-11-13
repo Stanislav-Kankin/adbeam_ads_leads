@@ -116,7 +116,7 @@ def test_dossier(tmp_path, monkeypatch):
             s = rows["santeh.ru"]
             assert s[1] == "7724419293" and s[2] == 'ООО "Сантех"' and s[3] == "a@santeh.ru"
             assert s[4] == "a@santeh.ru\nb@santeh.ru"
-            assert s[7] == 20217814 and "Roistat" in s[8] and s[9] == 1703.1 and s[12] == "сантехника" and s[13] == "A"
+            assert s[7] == 67392714 and "Roistat" in s[8] and s[9] == 1703.1 and s[12] == "сантехника" and s[13] == "A"
             assert "mailonly.ru" in rows and rows["mailonly.ru"][3] == "info@mailonly.ru"  # без ИНН, но с почтой
             assert "empty.ru" not in rows
             assert [r[0] for r in wb["Без контактов"].iter_rows(min_row=2, values_only=True)] == ["empty.ru"]

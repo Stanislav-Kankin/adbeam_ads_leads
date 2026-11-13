@@ -4,7 +4,7 @@ from ads_leads.site_crawl import is_mobile
 
 
 def company(**kw) -> Company:
-    base = {"domain": "x.ru", "ad_cost": 2_000_000}  # 2 млн коп./день ≈ 600 тыс. ₽/мес
+    base = {"domain": "x.ru", "ad_cost": 600_000}  # ₽/мес
     base.update(kw)
     return Company(**base)
 
@@ -14,7 +14,7 @@ def test_priority_rules():
     assert priority(company(signals="calltouch"))[0] == "A"  # коллтрекинг, выручка неизвестна
     assert priority(company(signals="metrika", revenue=900_000_000))[0] == "B"  # нет аналитики
     assert priority(company(signals="roistat", revenue=50_000_000))[0] == "B"  # мелкая
-    assert priority(company(signals="roistat", ad_cost=500_000))[0] == "C"  # 150 тыс. ₽/мес
+    assert priority(company(signals="roistat", ad_cost=150_000))[0] == "C"
     assert priority(company(signals="roistat", ad_cost=None))[0] == "C"
     assert priority(company(signals="roistat", legal_status="Ликвидировано"))[0] == "C"
 

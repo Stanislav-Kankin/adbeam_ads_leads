@@ -86,8 +86,8 @@ def test_collect_advertisers(app_client):
     assert page.count('class="domain" href="https://santeh.ru"') == 1  # поддомен склеен
     assert "ozon.ru · маркетплейс" in page
     assert "Москва, Санкт-Петербург" in page  # santehnika-online.ru есть в обоих регионах
-    # бюджет: adcost в копейках/день → ₽/мес; santeh.ru второй в пакете → 200 000 коп/день = 60 000 ₽/мес
-    assert "60 000" in page
+    # бюджет: adcost = «прогноз бюджета» Keys.so в ₽/мес; santeh.ru второй в пакете → 200 000
+    assert "200 000" in page
 
     # повторный сбор не плодит дубли
     c.post("/niches/1/collect")

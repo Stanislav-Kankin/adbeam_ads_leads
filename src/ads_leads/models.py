@@ -73,7 +73,7 @@ class Company(Base):
 
     # Keys.so, пакетный анализ домена (по первой базе ниши)
     keyso_base: Mapped[str | None] = mapped_column(String(10))
-    ad_cost: Mapped[int | None] = mapped_column()  # adcost: оценка расхода в день, копейки
+    ad_cost: Mapped[int | None] = mapped_column()  # adcost: «прогноз бюджета», ₽/мес (как в интерфейсе Keys.so)
     ad_traffic: Mapped[int | None] = mapped_column()  # adtraf: кликов из контекста в день
     ad_keys: Mapped[int | None] = mapped_column()  # adkeyscnt: запросов в контексте
     ad_ads: Mapped[int | None] = mapped_column()  # adscnt: объявлений
@@ -146,8 +146,8 @@ class Company(Base):
 
     @property
     def ad_budget_month(self) -> int | None:
-        """Оценка бюджета Директа, ₽/мес (adcost — копейки в день)."""
-        return None if self.ad_cost is None else round(self.ad_cost / 100 * 30)
+        """Оценка бюджета Директа, ₽/мес: «прогноз бюджета» Keys.so как есть (сверено с их интерфейсом 13.11.2026)."""
+        return self.ad_cost
 
 
 class NicheAdvertiser(Base):
