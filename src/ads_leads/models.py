@@ -7,7 +7,7 @@
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import Column, DateTime, ForeignKey, String, Table, Text, func
+from sqlalchemy import Column, DateTime, ForeignKey, String, Table, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ads_leads.db import Base
@@ -38,6 +38,23 @@ class Niche(Base):
     companies: Mapped[list["Company"]] = relationship(
         secondary=company_niches, back_populates="niches"
     )
+    queries: Mapped[list["NicheQuery"]] = relationship(
+        back_populates="niche", cascade="all, delete-orphan", order_by="NicheQuery.id"
+    )
+
+
+class NicheQuery(Base):
+    """Коммерческий запрос ниши («купить кран hansgrohe»), по нему ищем рекламодателей."""
+
+    __tablename__ = "niche_queries"
+    __table_args__ = (UniqueConstraint("niche_id", "text"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    niche_id: Mapped[int] = mapped_column(ForeignKey("niches.id", ondelete="CASCADE"), index=True)
+    text: Mapped[str] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    niche: Mapped[Niche] = relationship(back_populates="queries")
 
 
 class Company(Base):

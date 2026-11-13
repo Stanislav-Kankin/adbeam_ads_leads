@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}{{ niche.name }} · AdBeam Leads{% endblock %}
+{% block content %}
+<p class="small"><a href="/">← Все ниши</a></p>
+<h1>{{ niche.name }}</h1>
+<p class="lead">Регион: {{ niche.region_lr }}. Идите по шагам сверху вниз.</p>
+
+<div class="pipeline">
+  {% for s in steps %}
+  <a href="#step-{{ s.n }}" class="{{ '' if s.ready else 'soon' }}">
+    <span class="muted small">Шаг {{ s.n }}</span>
+    <b>{{ s.count if s.count is not none else '—' }}</b>
+    <span class="small">{{ s.title }}</span>
+  </a>
+  {% endfor %}
+</div>
+
+{# Шаг 1 #}
+<div class="card step" id="step-1">
+  <div class="step-head"><span class="stepnum">1</span>
+    <div class="grow"><h2>Запросы</h2><span class="muted small">{{ steps[0].hint }}</span></div>
+    <span class="badge info">{{ niche.queries|length }}</span>
+  </div>
+  <form method="post" action="/niches/{{ niche.id }}/queries">
+    <textarea name="queries" rows="4" placeholder="По одному на строку, например:&#10;купить кран hansgrohe&#10;смеситель grohe купить&#10;унитаз подвесной купить" required></textarea>
+    <div class="row" style="margin-top:8px">
+      <button>Добавить запросы</button>
+      <span class="muted small">Позже подтянем подсказки из Вордстата через Keys.so.</span>
+    </div>
+  </form>
+  {% if niche.queries %}
+  <details style="margin-top:12px"><summary class="muted">Показать запросы ({{ niche.queries|length }})</summary>
+    <p>{% for q in niche.queries %}<span class="badge info" style="margin:2px">{{ q.text }}</span>{% endfor %}</p>
+    <form method="post" action="/niches/{{ niche.id }}/queries/clear" onsubmit="return confirm('Удалить все запросы ниши?')">
+      <button class="ghost">Очистить список</button>
+    </form>
+  </details>
+  {% endif %}
+</div>
+
+{# Шаг 2 #}
+<div class="card step" id="step-2">
+  <div class="step-head"><span class="stepnum">2</span>
+    <div class="grow"><h2>Рекламодатели</h2><span class="muted small">{{ steps[1].hint }}</span></div>
+    <span class="badge info">{{ companies|length }}</span>
+  </div>
+  <div class="row" style="margin-bottom:12px">
+    <button disabled title="Появится после оплаты Keys.so и указания токена">Собрать из Keys.so по запросам</button>
+    <span class="badge soon">ждём доступ к Keys.so</span>
+  </div>
+  <details {% if not companies %}open{% endif %}><summary class="muted">Добавить домены вручную</summary>
+    <form method="post" action="/niches/{{ niche.id }}/companies" style="margin-top:8px">
+      <textarea name="domains" rows="3" placeholder="Домены или ссылки, по одному на строку: santehnika-online.ru" required></textarea>
+      <div class="row" style="margin-top:8px"><button>Добавить</button>
+        <span class="muted small">Дубли склеиваются автоматически: www.site.ru и site.ru/catalog — один домен.</span></div>
+    </form>
+  </details>
+  {% if companies %}
+  <table style="margin-top:12px">
+    <tr><th>Домен</th><th>ИНН</th><th>Юрлицо</th><th>Источник</th><th>Статус</th></tr>
+    {% for c in companies %}
+    <tr>
+      <td><a href="https://{{ c.domain }}" target="_blank" rel="noopener">{{ c.domain }}</a></td>
+      <td>{{ c.inn or '—' }}</td><td>{{ c.legal_name or '—' }}</td>
+      <td class="muted">{{ c.source }}</td><td>{{ c.status }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+
+{# Шаги 3–5: в разработке #}
+{% for s in steps[2:] %}
+<div class="card step soon" id="step-{{ s.n }}">
+  <div class="step-head"><span class="stepnum">{{ s.n }}</span>
+    <div class="grow"><h2>{{ s.title }}</h2><span class="muted small">{{ s.hint }}</span></div>
+    <span class="badge soon">скоро</span>
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

@@ -1,26 +1,8 @@
 {% extends "base.html" %}
-{% block title %}Компании · AdBeam Leads{% endblock %}
+{% block title %}Все компании · AdBeam Leads{% endblock %}
 {% block content %}
-<h2>Компании</h2>
-<div class="card">
-  <form class="row" method="get" action="/companies">
-    <select name="niche_id" onchange="this.form.submit()">
-      <option value="">Все ниши</option>
-      {% for n in niches %}<option value="{{ n.id }}" {% if n.id == niche_id %}selected{% endif %}>{{ n.name }}</option>{% endfor %}
-    </select>
-    <span class="muted">Всего: {{ companies|length }}</span>
-  </form>
-</div>
-<div class="card">
-  <form class="row" method="post" action="/companies">
-    <textarea name="domains" rows="3" cols="50" placeholder="Домены или URL, по одному на строку" required></textarea>
-    <select name="niche_id">
-      <option value="">Без ниши</option>
-      {% for n in niches %}<option value="{{ n.id }}" {% if n.id == niche_id %}selected{% endif %}>{{ n.name }}</option>{% endfor %}
-    </select>
-    <button>Добавить</button>
-  </form>
-</div>
+<h1>Все компании</h1>
+<p class="lead">Общая база по всем нишам, одна строка на домен. Добавлять компании нужно внутри ниши, на <a href="/">странице ниши</a>.</p>
 <div class="card">
   {% if companies %}
   <table>
@@ -30,12 +12,14 @@
       <td><a href="https://{{ c.domain }}" target="_blank" rel="noopener">{{ c.domain }}</a></td>
       <td>{{ c.inn or '—' }}</td>
       <td>{{ c.legal_name or '—' }}</td>
-      <td>{{ c.niches|map(attribute='name')|join(', ') or '—' }}</td>
+      <td>{% for n in c.niches %}<a href="/niches/{{ n.id }}">{{ n.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</td>
       <td class="muted">{{ c.source }}</td>
       <td>{{ c.status }}</td>
     </tr>
     {% endfor %}
   </table>
-  {% else %}<p class="muted">Компаний пока нет.</p>{% endif %}
+  {% else %}
+  <div class="empty">Компаний пока нет. <a href="/">Создайте нишу</a> и добавьте рекламодателей на шаге 2.</div>
+  {% endif %}
 </div>
 {% endblock %}

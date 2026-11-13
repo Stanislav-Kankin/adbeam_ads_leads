@@ -34,12 +34,21 @@ def client(tmp_path, monkeypatch):
     config.get_settings.cache_clear()
 
 
-def test_niche_and_companies_flow(client):
+def test_niche_flow(client):
     assert client.get("/health").json()["status"] == "ok"
+    assert "Ниш пока нет" in client.get("/").text
 
-    client.post("/niches", data={"name": "сантехника", "region_lr": 213})
-    assert "сантехника" in client.get("/niches").text
+    r = client.post("/niches", data={"name": "сантехника", "region_lr": 213})
+    assert r.url.path == "/niches/1"
+    assert "сантехника" in client.get("/").text
 
-    client.post("/companies", data={"domains": "https://www.santeh.ru/\nsanteh.ru\nмусор", "niche_id": 1})
-    page = client.get("/companies?niche_id=1").text
+    client.post("/niches/1/queries", data={"queries": "Купить  кран hansgrohe\nкупить кран hansgrohe\n\nсмеситель grohe"})
+    page = client.get("/niches/1").text
+    assert page.count('class="badge info" style="margin:2px"') == 2  # нормализация и дедуп запросов
+
+    client.post("/niches/1/companies", data={"domains": "https://www.santeh.ru/\nsanteh.ru\nмусор"})
+    page = client.get("/niches/1").text
     assert page.count('href="https://santeh.ru"') == 1  # дедуп по домену
+    assert 'href="https://santeh.ru"' in client.get("/companies").text
+
+    assert client.get("/niches/999").status_code == 404

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Ниши</h1>
+<p class="lead">Выберите нишу или создайте новую. Внутри ниши пять шагов: запросы → рекламодатели → сайты и ИНН → Контур.Продажи → досье.</p>
+
+<div class="card">
+  <h2>Новая ниша</h2>
+  <p class="muted small">Например «сантехника». Регион — код Яндекса (lr): 213 = Москва, 2 = Санкт-Петербург, 225 = вся Россия.</p>
+  <form class="row" method="post" action="/niches">
+    <input name="name" placeholder="Название ниши" required style="min-width:260px">
+    <label class="muted small">Регион <input name="region_lr" type="number" value="213" style="width:90px"></label>
+    <button>Создать и открыть</button>
+  </form>
+</div>
+
+{% if niches %}
+<div class="card">
+  <table>
+    <tr><th>Ниша</th><th>Регион</th><th>Запросов</th><th>Рекламодателей</th><th>С ИНН</th><th></th></tr>
+    {% for n in niches %}
+    <tr>
+      <td><a href="/niches/{{ n.id }}"><b>{{ n.name }}</b></a></td>
+      <td class="muted">{{ n.region_lr }}</td>
+      <td>{{ n.queries|length }}</td>
+      <td>{{ n.companies|length }}</td>
+      <td>{{ n.companies|selectattr('inn')|list|length }}</td>
+      <td style="text-align:right"><a class="btn" href="/niches/{{ n.id }}">Открыть</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% else %}
+<div class="card empty">Ниш пока нет. Создайте первую — например, «сантехника».</div>
+{% endif %}
+{% endblock %}
