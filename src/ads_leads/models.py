@@ -1,16 +1,13 @@
-"""Основная сущность — компания-рекламодатель (ключ: домен, позже + ИНН).
-
-Поля сигналов сайта и данных Контура добавим, когда будет понятна
-структура выгрузок Keys.so и Контур.Продаж.
-"""
+"""Основная сущность — компания-рекламодатель (ключ: домен, позже + ИНН)."""
 
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import Column, DateTime, ForeignKey, String, Table, Text, UniqueConstraint, func
+from sqlalchemy import Column, DateTime, Float, ForeignKey, String, Table, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ads_leads.db import Base
+from ads_leads.regions import DEFAULT_REGIONS, parse_regions
 
 
 class Source(StrEnum):
@@ -32,15 +29,21 @@ class Niche(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200), unique=True)
-    region_lr: Mapped[int] = mapped_column(default=213)  # 213 = Москва
+    region_lr: Mapped[int] = mapped_column(default=213)  # устарело, оставлено для старых БД
+    regions: Mapped[str] = mapped_column(String(200), default=DEFAULT_REGIONS, server_default=DEFAULT_REGIONS)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
-    companies: Mapped[list["Company"]] = relationship(
-        secondary=company_niches, back_populates="niches"
-    )
+    companies: Mapped[list["Company"]] = relationship(secondary=company_niches, back_populates="niches")
     queries: Mapped[list["NicheQuery"]] = relationship(
         back_populates="niche", cascade="all, delete-orphan", order_by="NicheQuery.id"
     )
+    advertisers: Mapped[list["NicheAdvertiser"]] = relationship(
+        back_populates="niche", cascade="all, delete-orphan"
+    )
+
+    @property
+    def region_codes(self) -> list[str]:
+        return parse_regions(self.regions) or [DEFAULT_REGIONS]
 
 
 class NicheQuery(Base):
@@ -67,11 +70,60 @@ class Company(Base):
     source: Mapped[str] = mapped_column(String(20), default=Source.MANUAL)
     status: Mapped[str] = mapped_column(String(20), default="new")
     notes: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now()
-    )
 
-    niches: Mapped[list[Niche]] = relationship(
-        secondary=company_niches, back_populates="companies"
-    )
+    # Keys.so, пакетный анализ домена (по первой базе ниши)
+    keyso_base: Mapped[str | None] = mapped_column(String(10))
+    ad_cost: Mapped[int | None] = mapped_column()  # adcost: оценка расхода в день, копейки
+    ad_traffic: Mapped[int | None] = mapped_column()  # adtraf: кликов из контекста в день
+    ad_keys: Mapped[int | None] = mapped_column()  # adkeyscnt: запросов в контексте
+    ad_ads: Mapped[int | None] = mapped_column()  # adscnt: объявлений
+    seo_traffic: Mapped[int | None] = mapped_column()  # traf: оценка трафика из поиска
+    keyso_updated_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    niches: Mapped[list[Niche]] = relationship(secondary=company_niches, back_populates="companies")
+
+    @property
+    def ad_budget_month(self) -> int | None:
+        """Оценка бюджета Директа, ₽/мес (adcost — копейки в день)."""
+        return None if self.ad_cost is None else round(self.ad_cost / 100 * 30)
+
+
+class NicheAdvertiser(Base):
+    """Как компания рекламируется по запросам конкретной ниши в конкретном регионе."""
+
+    __tablename__ = "niche_advertisers"
+    __table_args__ = (UniqueConstraint("niche_id", "company_id", "base"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    niche_id: Mapped[int] = mapped_column(ForeignKey("niches.id", ondelete="CASCADE"), index=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), index=True)
+    base: Mapped[str] = mapped_column(String(10))
+    keyso_domain: Mapped[str] = mapped_column(String(255))  # как в Keys.so (может быть поддомен)
+    share: Mapped[float] = mapped_column(Float, default=0)  # % запросов ниши, где есть реклама домена
+    keys_cnt: Mapped[int] = mapped_column(default=0)  # запросов ниши с рекламой домена
+    spec_cnt: Mapped[int] = mapped_column(default=0)  # из них в премиум-показах (спецразмещение)
+    other_cnt: Mapped[int] = mapped_column(default=0)
+    excluded: Mapped[str | None] = mapped_column(String(100))  # причина исключения (маркетплейс и т.п.)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    niche: Mapped[Niche] = relationship(back_populates="advertisers")
+    company: Mapped[Company] = relationship()
+
+
+class Job(Base):
+    """Фоновая задача (сбор рекламодателей и т.п.) — чтобы видеть прогресс в интерфейсе."""
+
+    __tablename__ = "jobs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    niche_id: Mapped[int | None] = mapped_column(ForeignKey("niches.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(50))
+    status: Mapped[str] = mapped_column(String(20), default="queued")  # queued/running/done/error
+    progress: Mapped[int] = mapped_column(default=0)
+    message: Mapped[str | None] = mapped_column(Text)
+    started_by: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)

@@ -38,13 +38,14 @@ def test_niche_flow(client):
     assert client.get("/health").json()["status"] == "ok"
     assert "Ниш пока нет" in client.get("/").text
 
-    r = client.post("/niches", data={"name": "сантехника", "region_lr": 213})
+    r = client.post("/niches", data={"name": "сантехника", "regions": ["msk", "spb", "bad"]})
     assert r.url.path == "/niches/1"
     assert "сантехника" in client.get("/").text
 
     client.post("/niches/1/queries", data={"queries": "Купить  кран hansgrohe\nкупить кран hansgrohe\n\nсмеситель grohe"})
     page = client.get("/niches/1").text
-    assert page.count('class="badge info" style="margin:2px"') == 2  # нормализация и дедуп запросов
+    assert page.count('class="chip query"') == 2  # нормализация и дедуп запросов
+    assert "Санкт-Петербург" in page
 
     client.post("/niches/1/companies", data={"domains": "https://www.santeh.ru/\nsanteh.ru\nмусор"})
     page = client.get("/niches/1").text

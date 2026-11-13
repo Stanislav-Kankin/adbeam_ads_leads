@@ -1,35 +1,46 @@
 {% extends "base.html" %}
+{% from "_regions.html" import region_picker, region_picker_script %}
 {% block content %}
-<h1>Ниши</h1>
-<p class="lead">Выберите нишу или создайте новую. Внутри ниши пять шагов: запросы → рекламодатели → сайты и ИНН → Контур.Продажи → досье.</p>
+<div class="page-head">
+  <div class="eyebrow">AdBeam Leads · база рекламодателей</div>
+  <h1>Ниши</h1>
+  <p class="lead">Выберите нишу или создайте новую. Внутри пять шагов: запросы → рекламодатели → сайты и ИНН → Контур.Продажи → досье.</p>
+</div>
 
 <div class="card">
   <h2>Новая ниша</h2>
-  <p class="muted small">Например «сантехника». Регион — код Яндекса (lr): 213 = Москва, 2 = Санкт-Петербург, 225 = вся Россия.</p>
-  <form class="row" method="post" action="/niches">
-    <input name="name" placeholder="Название ниши" required style="min-width:260px">
-    <label class="muted small">Регион <input name="region_lr" type="number" value="213" style="width:90px"></label>
-    <button>Создать и открыть</button>
+  <p class="muted small" style="margin:6px 0 16px">Например, «сантехника». Регионы можно поменять и позже.</p>
+  <form method="post" action="/niches">
+    <div class="row">
+      <input name="name" placeholder="Название ниши" required style="min-width:280px">
+      {{ region_picker("new-niche-regions", ["msk"]) }}
+      <button>Создать и открыть →</button>
+    </div>
   </form>
 </div>
 
 {% if niches %}
 <div class="card">
+  <div class="table-wrap">
   <table>
-    <tr><th>Ниша</th><th>Регион</th><th>Запросов</th><th>Рекламодателей</th><th>С ИНН</th><th></th></tr>
+    <thead><tr><th>Ниша</th><th>Регионы</th><th class="num">Запросов</th><th class="num">Рекламодателей</th><th class="num">С ИНН</th><th></th></tr></thead>
+    <tbody>
     {% for n in niches %}
     <tr>
-      <td><a href="/niches/{{ n.id }}"><b>{{ n.name }}</b></a></td>
-      <td class="muted">{{ n.region_lr }}</td>
-      <td>{{ n.queries|length }}</td>
-      <td>{{ n.companies|length }}</td>
-      <td>{{ n.companies|selectattr('inn')|list|length }}</td>
-      <td style="text-align:right"><a class="btn" href="/niches/{{ n.id }}">Открыть</a></td>
+      <td><a class="domain" href="/niches/{{ n.id }}">{{ n.name }}</a></td>
+      <td class="muted small">{{ region_names(n.region_codes) }}</td>
+      <td class="num">{{ n.queries|length }}</td>
+      <td class="num">{{ n.companies|length }}</td>
+      <td class="num">{{ n.companies|selectattr('inn')|list|length }}</td>
+      <td style="text-align:right"><a class="btn dark sm" href="/niches/{{ n.id }}">Открыть</a></td>
     </tr>
     {% endfor %}
+    </tbody>
   </table>
+  </div>
 </div>
 {% else %}
 <div class="card empty">Ниш пока нет. Создайте первую — например, «сантехника».</div>
 {% endif %}
 {% endblock %}
+{% block scripts %}{{ region_picker_script() }}{% endblock %}

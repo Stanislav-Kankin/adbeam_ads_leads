@@ -1,0 +1,61 @@
+{# Выбор регионов: кнопка с выбранными городами + всплывающее окно с галочками.
+   Галочки лежат внутри формы, поэтому отправляются вместе с ней (поле regions). #}
+{% macro region_picker(id, selected, autosubmit=false) %}
+<span class="region-picker" id="{{ id }}-chips">
+  {% for code in selected %}<span class="chip">{{ YANDEX_BASES[code] }}</span>{% endfor %}
+</span>
+<button type="button" class="ghost sm" onclick="document.getElementById('{{ id }}').showModal()">Выбрать регионы</button>
+<dialog class="regions" id="{{ id }}" data-autosubmit="{{ 'true' if autosubmit else 'false' }}">
+  <div class="d-head">
+    <h2>Регионы поиска рекламы</h2>
+    <p class="muted small" style="margin:6px 0 0">Keys.so собирает рекламную выдачу Яндекса отдельно по каждому городу. Можно выбрать несколько.</p>
+  </div>
+  <div class="d-body">
+    <div class="presets">
+      <button type="button" class="ghost sm" data-preset="msk">Только Москва</button>
+      <button type="button" class="ghost sm" data-preset="msk,spb">Москва + Петербург</button>
+      <button type="button" class="ghost sm" data-preset="msk,spb,ekb,nsk,kzn,nnv,che,sam,ufa,rnd,krr,oms,kry,vrn,prm,vlg">Города-миллионники</button>
+      <button type="button" class="ghost sm" data-preset="">Снять всё</button>
+    </div>
+    <div class="region-grid">
+      {% for code, name in YANDEX_BASES.items() %}
+      <label><input type="checkbox" name="regions" value="{{ code }}" {% if code in selected %}checked{% endif %}> {{ name }}</label>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="d-foot">
+    <button type="button" class="ghost" data-close>Отмена</button>
+    <button type="button" class="dark" data-done>Готово</button>
+  </div>
+</dialog>
+{% endmacro %}
+
+{% macro region_picker_script() %}
+<script>
+document.querySelectorAll("dialog.regions").forEach((dlg) => {
+  const boxes = () => [...dlg.querySelectorAll('input[name="regions"]')];
+  let snapshot = [];
+  const opener = document.querySelector(`[onclick*="${dlg.id}"]`);
+  opener && opener.addEventListener("click", () => { snapshot = boxes().map((b) => b.checked); });
+  const renderChips = () => {
+    const chips = document.getElementById(dlg.id + "-chips");
+    const picked = boxes().filter((b) => b.checked).map((b) => b.parentElement.textContent.trim());
+    chips.innerHTML = (picked.length ? picked : ["Москва"]).map((n) => `<span class="chip">${n}</span>`).join("");
+  };
+  dlg.querySelectorAll("[data-preset]").forEach((btn) => btn.addEventListener("click", () => {
+    const codes = btn.dataset.preset.split(",").filter(Boolean);
+    boxes().forEach((b) => (b.checked = codes.includes(b.value)));
+  }));
+  dlg.querySelector("[data-close]").addEventListener("click", () => {
+    boxes().forEach((b, i) => (b.checked = snapshot[i] ?? b.checked));
+    dlg.close();
+  });
+  dlg.querySelector("[data-done]").addEventListener("click", () => {
+    if (!boxes().some((b) => b.checked)) boxes().find((b) => b.value === "msk").checked = true;
+    renderChips();
+    dlg.close();
+    if (dlg.dataset.autosubmit === "true") dlg.closest("form").submit();
+  });
+});
+</script>
+{% endmacro %}

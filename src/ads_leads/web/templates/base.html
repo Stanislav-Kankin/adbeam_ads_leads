@@ -4,62 +4,32 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}AdBeam Leads{% endblock %}</title>
-  <style>
-    :root { --bg:#f6f7f9; --card:#fff; --text:#1d2330; --muted:#6b7280; --line:#e5e7eb;
-            --accent:#2563eb; --accent-soft:#eff4ff; --ok:#15803d; --ok-soft:#ecfdf3; --warn:#b45309; --warn-soft:#fffbeb; }
-    * { box-sizing:border-box; }
-    body { margin:0; font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); }
-    header { background:#1d2330; color:#fff; padding:12px 24px; display:flex; gap:24px; align-items:center; }
-    header a { color:#cbd5e1; text-decoration:none; } header a:hover { color:#fff; }
-    header .brand { font-weight:600; color:#fff; }
-    header .status { margin-left:auto; font-size:12px; }
-    main { max-width:1100px; margin:24px auto; padding:0 16px; }
-    h1 { font-size:22px; margin:0 0 4px; } h2 { font-size:17px; margin:0 0 4px; }
-    a { color:var(--accent); }
-    .lead { color:var(--muted); margin:0 0 20px; }
-    .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px; }
-    table { width:100%; border-collapse:collapse; }
-    th, td { text-align:left; padding:8px; border-bottom:1px solid var(--line); vertical-align:top; }
-    th { color:var(--muted); font-weight:500; font-size:13px; }
-    input, select, textarea, button { font:inherit; padding:8px 12px; border:1px solid var(--line); border-radius:6px; }
-    textarea { width:100%; resize:vertical; }
-    button, .btn { background:var(--accent); color:#fff; border:0; cursor:pointer; border-radius:6px; padding:8px 14px; text-decoration:none; display:inline-block; }
-    button.ghost { background:none; color:var(--muted); border:1px solid var(--line); }
-    button:disabled { background:#cbd5e1; cursor:not-allowed; }
-    .muted { color:var(--muted); } .small { font-size:12px; }
-    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-    .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; }
-    .badge.ok { background:var(--ok-soft); color:var(--ok); } .badge.soon { background:var(--warn-soft); color:var(--warn); }
-    .badge.info { background:var(--accent-soft); color:var(--accent); }
-    .empty { text-align:center; padding:32px 16px; color:var(--muted); }
-    .stepnum { display:inline-flex; width:28px; height:28px; border-radius:50%; background:var(--accent); color:#fff;
-               align-items:center; justify-content:center; font-weight:600; margin-right:10px; flex:none; }
-    .step.soon .stepnum { background:#cbd5e1; }
-    .step-head { display:flex; align-items:center; margin-bottom:12px; }
-    .step-head .grow { flex:1; }
-    .pipeline { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-bottom:20px; }
-    .pipeline a { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px; text-decoration:none; color:var(--text); }
-    .pipeline a.soon { opacity:.6; }
-    .pipeline b { display:block; font-size:20px; }
-    @media (max-width:800px) { .pipeline { grid-template-columns:1fr 1fr; } }
-  </style>
+  <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
+  <link rel="apple-touch-icon" href="/static/logo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/app.css?v=2">
 </head>
 <body>
-<header>
-  <a class="brand" href="/">AdBeam Leads</a>
-  <a href="/">Ниши</a>
-  <a href="/companies">Все компании</a>
-  <span class="status">
-    {% if keyso_ready %}<span class="badge ok">Keys.so подключён</span>
-    {% else %}<span class="badge soon" title="Укажите ADS_LEADS_KEYSO_API_TOKEN в файле .env">Keys.so не подключён</span>{% endif %}
-  </span>
-  {% if user %}
-  <form method="post" action="/logout" style="display:flex;gap:10px;align-items:center;margin:0">
-    <span style="color:#cbd5e1;font-size:13px">{{ user }}</span>
-    <button style="background:none;border:1px solid #475569;color:#cbd5e1;padding:4px 10px;font-size:12px">Выйти</button>
-  </form>
-  {% endif %}
+<header class="topbar">
+  <div class="inner">
+    <a class="logo" href="/" title="AdBeam Leads"><img src="/static/logo.png" alt="AdBeam"></a>
+    <nav>
+      <a href="/" class="{{ 'on' if request.url.path == '/' or request.url.path.startswith('/niches') }}">Ниши</a>
+      <a href="/companies" class="{{ 'on' if request.url.path.startswith('/companies') }}">Все компании</a>
+    </nav>
+    <div class="right">
+      {% if keyso_ready %}<span class="badge ok">● Keys.so подключён</span>
+      {% else %}<span class="badge warn" title="Укажите ADS_LEADS_KEYSO_API_TOKEN в файле .env">Keys.so не подключён</span>{% endif %}
+      {% if user %}
+      <span class="user">{{ user }}</span>
+      <form method="post" action="/logout" style="margin:0"><button class="ghost sm">Выйти</button></form>
+      {% endif %}
+    </div>
+  </div>
 </header>
 <main>{% block content %}{% endblock %}</main>
+{% block scripts %}{% endblock %}
 </body>
 </html>

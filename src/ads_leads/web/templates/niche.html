@@ -1,81 +1,165 @@
 {% extends "base.html" %}
+{% from "_regions.html" import region_picker, region_picker_script %}
 {% block title %}{{ niche.name }} · AdBeam Leads{% endblock %}
 {% block content %}
-<p class="small"><a href="/">← Все ниши</a></p>
-<h1>{{ niche.name }}</h1>
-<p class="lead">Регион: {{ niche.region_lr }}. Идите по шагам сверху вниз.</p>
+<div class="page-head">
+  <div class="eyebrow"><a href="/" style="text-decoration:none">Ниши</a> · {{ niche.name }}</div>
+  <h1>{{ niche.name|capitalize }}</h1>
+  <form method="post" action="/niches/{{ niche.id }}/regions" class="row" style="margin-top:14px">
+    <span class="field-label">Регионы:</span>
+    {{ region_picker("niche-regions", niche.region_codes, autosubmit=true) }}
+  </form>
+</div>
 
 <div class="pipeline">
   {% for s in steps %}
   <a href="#step-{{ s.n }}" class="{{ '' if s.ready else 'soon' }}">
-    <span class="muted small">Шаг {{ s.n }}</span>
+    <span class="n">Шаг {{ s.n }}</span>
     <b>{{ s.count if s.count is not none else '—' }}</b>
-    <span class="small">{{ s.title }}</span>
+    <span class="t">{{ s.title }}</span>
   </a>
   {% endfor %}
 </div>
 
-{# Шаг 1 #}
+{# Шаг 1 — запросы #}
 <div class="card step" id="step-1">
   <div class="step-head"><span class="stepnum">1</span>
-    <div class="grow"><h2>Запросы</h2><span class="muted small">{{ steps[0].hint }}</span></div>
+    <div class="grow"><h2>Запросы</h2><p class="muted small">Коммерческие запросы ниши. По ним Keys.so найдёт, кто крутит Директ.</p></div>
     <span class="badge info">{{ niche.queries|length }}</span>
   </div>
   <form method="post" action="/niches/{{ niche.id }}/queries">
     <textarea name="queries" rows="4" placeholder="По одному на строку, например:&#10;купить кран hansgrohe&#10;смеситель grohe купить&#10;унитаз подвесной купить" required></textarea>
-    <div class="row" style="margin-top:8px">
+    <div class="row" style="margin-top:12px">
       <button>Добавить запросы</button>
-      <span class="muted small">Позже подтянем подсказки из Вордстата через Keys.so.</span>
+      <span class="muted small">Дубли и лишние пробелы убираются сами. До 3 000 запросов на нишу.</span>
     </div>
   </form>
   {% if niche.queries %}
-  <details style="margin-top:12px"><summary class="muted">Показать запросы ({{ niche.queries|length }})</summary>
-    <p>{% for q in niche.queries %}<span class="badge info" style="margin:2px">{{ q.text }}</span>{% endfor %}</p>
+  <details style="margin-top:16px"><summary>Показать запросы ({{ niche.queries|length }})</summary>
+    <p>{% for q in niche.queries %}<span class="chip query">{{ q.text }}</span>{% endfor %}</p>
     <form method="post" action="/niches/{{ niche.id }}/queries/clear" onsubmit="return confirm('Удалить все запросы ниши?')">
-      <button class="ghost">Очистить список</button>
+      <button class="ghost sm">Очистить список</button>
     </form>
   </details>
   {% endif %}
 </div>
 
-{# Шаг 2 #}
+{# Шаг 2 — рекламодатели #}
 <div class="card step" id="step-2">
   <div class="step-head"><span class="stepnum">2</span>
-    <div class="grow"><h2>Рекламодатели</h2><span class="muted small">{{ steps[1].hint }}</span></div>
-    <span class="badge info">{{ companies|length }}</span>
+    <div class="grow"><h2>Рекламодатели</h2><p class="muted small">Кто показывается в рекламе Яндекса по запросам ниши и сколько примерно тратит на Директ.</p></div>
+    <span class="badge info">{{ advertisers|length }}</span>
   </div>
-  <div class="row" style="margin-bottom:12px">
-    <button disabled title="Появится после оплаты Keys.so и указания токена">Собрать из Keys.so по запросам</button>
-    <span class="badge soon">ждём доступ к Keys.so</span>
+
+  {% set running = job and job.status in ('queued', 'running') %}
+  <form method="post" action="/niches/{{ niche.id }}/collect" class="row">
+    {% if not keyso_ready %}
+      <button disabled>Собрать рекламодателей из Keys.so</button><span class="badge warn">нет токена Keys.so в .env</span>
+    {% elif not niche.queries %}
+      <button disabled>Собрать рекламодателей из Keys.so</button><span class="muted small">Сначала добавьте запросы на шаге 1</span>
+    {% elif running %}
+      <button disabled>Идёт сбор…</button>
+    {% else %}
+      <button>{{ 'Обновить данные из Keys.so' if advertisers else 'Собрать рекламодателей из Keys.so' }}</button>
+      <span class="muted small">{{ niche.queries|length }} запросов × {{ niche.region_codes|length }} регион(ов). Обычно 1–3 минуты.</span>
+    {% endif %}
+  </form>
+
+  {% if job %}
+  <div class="job" id="job" data-id="{{ job.id }}" data-running="{{ 'true' if running else 'false' }}">
+    <div class="row" style="justify-content:space-between">
+      <span id="job-msg">{{ job.message or '' }}</span>
+      {% if job.status == 'done' %}<span class="badge ok">готово</span>
+      {% elif job.status == 'error' %}<span class="badge err">ошибка</span>
+      {% else %}<span class="badge warn" id="job-pct">{{ job.progress }}%</span>{% endif %}
+    </div>
+    {% if running %}<div class="progress"><span id="job-bar" style="width:{{ job.progress }}%"></span></div>{% endif %}
+    {% if not running %}<div class="muted small" style="margin-top:4px">{{ job.finished_at.strftime('%d.%m.%Y %H:%M') if job.finished_at }}{% if job.started_by %} · запустил {{ job.started_by }}{% endif %}</div>{% endif %}
   </div>
-  <details {% if not companies %}open{% endif %}><summary class="muted">Добавить домены вручную</summary>
-    <form method="post" action="/niches/{{ niche.id }}/companies" style="margin-top:8px">
-      <textarea name="domains" rows="3" placeholder="Домены или ссылки, по одному на строку: santehnika-online.ru" required></textarea>
-      <div class="row" style="margin-top:8px"><button>Добавить</button>
-        <span class="muted small">Дубли склеиваются автоматически: www.site.ru и site.ru/catalog — один домен.</span></div>
-    </form>
-  </details>
-  {% if companies %}
-  <table style="margin-top:12px">
-    <tr><th>Домен</th><th>ИНН</th><th>Юрлицо</th><th>Источник</th><th>Статус</th></tr>
-    {% for c in companies %}
+  {% endif %}
+
+  {% if advertisers %}
+  <div class="table-wrap" style="margin-top:12px">
+  <table>
+    <thead><tr>
+      <th>#</th><th>Домен</th>
+      <th class="num" title="Доля запросов ниши, по которым показывается реклама домена">Доля запросов</th>
+      <th class="num" title="Запросов ниши с рекламой домена (из них в спецразмещении)">Запросов (спец.)</th>
+      <th class="num" title="Оценка Keys.so: расход на контекст во всех тематиках, без учёта таргетингов">Бюджет Директа, ₽/мес*</th>
+      <th class="num" title="Оценка кликов из контекста в день">Кликов/день</th>
+      <th class="num">Объявлений</th>
+      <th>Регионы</th>
+    </tr></thead>
+    <tbody>
+    {% for r in advertisers %}{% set c = r.company %}
     <tr>
-      <td><a href="https://{{ c.domain }}" target="_blank" rel="noopener">{{ c.domain }}</a></td>
-      <td>{{ c.inn or '—' }}</td><td>{{ c.legal_name or '—' }}</td>
-      <td class="muted">{{ c.source }}</td><td>{{ c.status }}</td>
+      <td class="muted small">{{ loop.index }}</td>
+      <td>
+        <a class="domain" href="https://{{ c.domain }}" target="_blank" rel="noopener">{{ c.domain }}</a>
+        {% if c.source == 'manual' %}<span class="badge info">вручную</span>{% endif %}
+      </td>
+      <td class="num">{% if r.share is not none %}<div class="row" style="gap:8px;justify-content:flex-end"><div class="bar" style="width:70px"><span style="width:{{ r.share }}%"></span></div>{{ '%.0f'|format(r.share) }}%</div>{% else %}—{% endif %}</td>
+      <td class="num">{% if r.keys_cnt is not none %}{{ r.keys_cnt }} <span class="muted">({{ r.spec_cnt }})</span>{% else %}—{% endif %}</td>
+      <td class="num"><b>{{ c.ad_budget_month|num }}</b></td>
+      <td class="num">{{ c.ad_traffic|num }}</td>
+      <td class="num">{{ c.ad_ads|num }}</td>
+      <td class="muted small">{{ region_names(r.bases) or '—' }}</td>
     </tr>
     {% endfor %}
+    </tbody>
   </table>
+  </div>
+  <p class="muted small" style="margin:10px 0 0">* Оценка Keys.so по первому региону ниши: весь контекст домена, не только эта ниша. Ориентир для сравнения компаний, а не точная сумма.</p>
+  {% elif not running %}
+  <div class="empty">Рекламодателей пока нет. Нажмите «Собрать рекламодателей из Keys.so».</div>
   {% endif %}
+
+  {% if excluded %}
+  <details style="margin-top:16px"><summary>Отброшено автоматически: {{ excluded|length }} (маркетплейсы, агрегаторы, федеральные сети)</summary>
+    <p>{% for r in excluded %}<span class="chip" title="{{ r.reason }}">{{ r.company.domain }} · {{ r.reason }}</span>{% endfor %}</p>
+  </details>
+  {% endif %}
+
+  <details style="margin-top:14px"><summary>Добавить домены вручную</summary>
+    <form method="post" action="/niches/{{ niche.id }}/companies" style="margin-top:10px">
+      <textarea name="domains" rows="3" placeholder="Домены или ссылки, по одному на строку: santehnika-online.ru" required></textarea>
+      <div class="row" style="margin-top:10px"><button class="dark">Добавить</button>
+        <span class="muted small">www.site.ru и site.ru/catalog — один домен, дубли склеиваются.</span></div>
+    </form>
+  </details>
 </div>
 
-{# Шаги 3–5: в разработке #}
+{# Шаги 3–5 — в разработке #}
+{% set hints = {3: 'Реквизиты и ИНН с сайта, контакты, Метрика, Roistat/Calltouch', 4: 'Файл ИНН → выгрузка с выручкой и руководителем', 5: 'Excel-таблица и сводка по нише'} %}
 {% for s in steps[2:] %}
 <div class="card step soon" id="step-{{ s.n }}">
   <div class="step-head"><span class="stepnum">{{ s.n }}</span>
-    <div class="grow"><h2>{{ s.title }}</h2><span class="muted small">{{ s.hint }}</span></div>
-    <span class="badge soon">скоро</span>
+    <div class="grow"><h2>{{ s.title }}</h2><p class="muted small">{{ hints[s.n] }}</p></div>
+    <span class="badge warn">скоро</span>
   </div>
 </div>
 {% endfor %}
+{% endblock %}
+
+{% block scripts %}
+{{ region_picker_script() }}
+<script>
+(() => {
+  const box = document.getElementById("job");
+  if (!box || box.dataset.running !== "true") return;
+  const tick = async () => {
+    try {
+      const r = await fetch(`/jobs/${box.dataset.id}`, { credentials: "same-origin" });
+      const j = await r.json();
+      document.getElementById("job-msg").textContent = j.message || "";
+      const bar = document.getElementById("job-bar"), pct = document.getElementById("job-pct");
+      if (bar) bar.style.width = j.progress + "%";
+      if (pct) pct.textContent = j.progress + "%";
+      if (j.status === "done" || j.status === "error") { location.hash = "step-2"; location.reload(); return; }
+    } catch (e) {}
+    setTimeout(tick, 2000);
+  };
+  setTimeout(tick, 1500);
+})();
+</script>
 {% endblock %}

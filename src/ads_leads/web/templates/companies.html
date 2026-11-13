@@ -1,25 +1,34 @@
 {% extends "base.html" %}
 {% block title %}Все компании · AdBeam Leads{% endblock %}
 {% block content %}
-<h1>Все компании</h1>
-<p class="lead">Общая база по всем нишам, одна строка на домен. Добавлять компании нужно внутри ниши, на <a href="/">странице ниши</a>.</p>
+<div class="page-head">
+  <div class="eyebrow">Общая база</div>
+  <h1>Все компании</h1>
+  <p class="lead">Все ниши вместе, одна строка на домен, сначала самые крупные рекламодатели. Компании добавляются внутри ниши.</p>
+</div>
 <div class="card">
   {% if companies %}
+  <div class="table-wrap">
   <table>
-    <tr><th>Домен</th><th>ИНН</th><th>Юрлицо</th><th>Ниши</th><th>Источник</th><th>Статус</th></tr>
+    <thead><tr><th>Домен</th><th class="num">Бюджет Директа, ₽/мес*</th><th class="num">Кликов/день</th><th>ИНН</th><th>Юрлицо</th><th>Ниши</th><th>Источник</th></tr></thead>
+    <tbody>
     {% for c in companies %}
     <tr>
-      <td><a href="https://{{ c.domain }}" target="_blank" rel="noopener">{{ c.domain }}</a></td>
+      <td><a class="domain" href="https://{{ c.domain }}" target="_blank" rel="noopener">{{ c.domain }}</a></td>
+      <td class="num"><b>{{ c.ad_budget_month|num }}</b></td>
+      <td class="num">{{ c.ad_traffic|num }}</td>
       <td>{{ c.inn or '—' }}</td>
       <td>{{ c.legal_name or '—' }}</td>
       <td>{% for n in c.niches %}<a href="/niches/{{ n.id }}">{{ n.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</td>
-      <td class="muted">{{ c.source }}</td>
-      <td>{{ c.status }}</td>
+      <td class="muted small">{{ {'keyso': 'Keys.so', 'manual': 'вручную', 'wb': 'реестр WB'}.get(c.source, c.source) }}</td>
     </tr>
     {% endfor %}
+    </tbody>
   </table>
+  </div>
+  <p class="muted small" style="margin:10px 0 0">* Оценка Keys.so: весь контекст домена без учёта таргетингов.</p>
   {% else %}
-  <div class="empty">Компаний пока нет. <a href="/">Создайте нишу</a> и добавьте рекламодателей на шаге 2.</div>
+  <div class="empty">Компаний пока нет. <a href="/">Создайте нишу</a> и соберите рекламодателей на шаге 2.</div>
   {% endif %}
 </div>
 {% endblock %}
