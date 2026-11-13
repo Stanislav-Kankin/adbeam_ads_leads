@@ -5,13 +5,14 @@
 """
 
 import threading
+from datetime import datetime
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import quote, urlencode
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
@@ -20,6 +21,7 @@ from sqlalchemy.orm import Session, selectinload
 from ads_leads import __version__, auth, jobs
 from ads_leads.config import get_settings
 from ads_leads.db import get_session, init_db
+from ads_leads.kontur import KonturFormatError, build_inn_xlsx, parse_kontur_xlsx
 from ads_leads.domains import normalize_domain
 from ads_leads.models import Company, Job, Niche, NicheQuery, Source
 from ads_leads.regions import DEFAULT_REGIONS, YANDEX_BASES, parse_regions, region_names
@@ -224,7 +226,7 @@ SITE_FILTERS = {
 
 @app.get("/niches/{niche_id}", response_class=HTMLResponse)
 def niche_page(request: Request, db: DbSession, niche_id: int, per: int = 20, p2: int = 1, p3: int = 1,
-               f3: str = "all"):
+               f3: str = "all", p4: int = 1):
     niche = _get_niche(db, niche_id)
     advertisers, excluded = _advertiser_rows(niche)
     checked = [r for r in advertisers if r["company"].site_checked_at]
@@ -233,7 +235,8 @@ def niche_page(request: Request, db: DbSession, niche_id: int, per: int = 20, p2
         {"n": 1, "title": "Запросы", "count": len(niche.queries), "ready": True},
         {"n": 2, "title": "Рекламодатели", "count": len(advertisers), "ready": True},
         {"n": 3, "title": "Сайты: ИНН и сигналы", "count": with_inn, "ready": True},
-        {"n": 4, "title": "Контур.Продажи", "count": None, "ready": False},
+        {"n": 4, "title": "Контур.Продажи", "count": sum(1 for r in advertisers if r["company"].kontur_loaded_at),
+         "ready": True},
         {"n": 5, "title": "Досье", "count": None, "ready": False},
     ]
     return _render(
@@ -245,6 +248,10 @@ def niche_page(request: Request, db: DbSession, niche_id: int, per: int = 20, p2
         site_filters=[(k, label, sum(1 for r in advertisers if fn(r["company"]))) for k, (label, fn) in SITE_FILTERS.items()],
         advertisers_total=len(advertisers), checked_total=len(checked), with_inn=with_inn,
         job=_last_job(db, niche_id, jobs.KIND_COLLECT), crawl_job=_last_job(db, niche_id, jobs.KIND_CRAWL),
+        kontur_job=_last_job(db, niche_id, jobs.KIND_KONTUR),
+        kontur_page=_paginate(sorted([r for r in advertisers if r["company"].kontur_loaded_at],
+                                     key=lambda r: -(r["company"].revenue or 0)), p4, per),
+        inns_for_kontur=_inns_for_kontur(advertisers),
         per_options=PER_PAGE_OPTIONS, signal_names=SIGNAL_NAMES, end_to_end=END_TO_END,
     )
 
@@ -299,6 +306,81 @@ def start_crawl(request: Request, db: DbSession, niche_id: int, recheck: Annotat
         db.commit()
         run_in_background(jobs.crawl_sites, job.id, None, not recheck)
     return RedirectResponse(f"/niches/{niche_id}#step-3", status_code=303)
+
+
+def _inns_for_kontur(advertisers: list[dict]) -> list[tuple[str, str, str | None]]:
+    seen, rows = set(), []
+    for r in advertisers:
+        c = r["company"]
+        if c.inn and c.inn not in seen:
+            seen.add(c.inn)
+            rows.append((c.inn, c.domain, c.legal_name))
+    return rows
+
+
+@app.get("/niches/{niche_id}/kontur/inns.xlsx")
+def kontur_inns_file(db: DbSession, niche_id: int):
+    """Шаг 4: файл ИНН ниши для загрузки в Контур.Продажи."""
+    niche = _get_niche(db, niche_id)
+    advertisers, _ = _advertiser_rows(niche)
+    content = build_inn_xlsx(_inns_for_kontur(advertisers))
+    filename = quote(f"ИНН для Контура — {niche.name}.xlsx")
+    return Response(
+        content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
+
+
+@app.post("/niches/{niche_id}/kontur/upload")
+async def kontur_upload(request: Request, db: DbSession, niche_id: int, file: Annotated[UploadFile, File()]):
+    """Шаг 4: загрузить выгрузку из Контура и склеить с компаниями по ИНН (и по сайту, если ИНН не было)."""
+    niche = _get_niche(db, niche_id)
+    job = Job(niche_id=niche_id, kind=jobs.KIND_KONTUR, started_by=request.state.user, status="running")
+    db.add(job)
+    try:
+        rows = parse_kontur_xlsx(await file.read())
+    except KonturFormatError as exc:
+        job.status, job.message, job.finished_at = "error", str(exc), datetime.now()
+        db.commit()
+        return RedirectResponse(f"/niches/{niche_id}#step-4", status_code=303)
+
+    by_inn: dict[str, list[Company]] = {}
+    by_domain: dict[str, Company] = {}
+    for c in db.scalars(select(Company)):
+        if c.inn:
+            by_inn.setdefault(c.inn, []).append(c)
+        by_domain[c.domain] = c
+    niche_ids = {c.id for c in niche.companies}
+    matched, matched_niche, by_site, unknown = set(), set(), 0, 0
+    now = datetime.now()
+    for row in rows:
+        targets = by_inn.get(row["inn"], [])
+        if not targets and row.get("kontur_site"):  # ИНН на сайте не нашли, но Контур знает сайт компании
+            company = by_domain.get(normalize_domain(row["kontur_site"]) or "")
+            if company and not company.inn:
+                company.inn = row["inn"]
+                targets, by_site = [company], by_site + 1
+        if not targets:
+            unknown += 1
+            continue
+        for company in targets:
+            for field, value in row.items():
+                if field != "inn":
+                    setattr(company, field, value)
+            company.kontur_loaded_at = now
+            matched.add(company.id)
+            if company.id in niche_ids:
+                matched_niche.add(company.id)
+    msg = f"Загружено строк: {len(rows)}. Склеено с компаниями ниши: {len(matched_niche)}"
+    if by_site:
+        msg += f" (из них {by_site} — по сайту, ИНН взят из Контура)"
+    if len(matched) > len(matched_niche):
+        msg += f"; ещё {len(matched) - len(matched_niche)} — из других ниш"
+    if unknown:
+        msg += f"; {unknown} строк не нашли пары (ИНН нет в базе)"
+    job.status, job.progress, job.message, job.finished_at = "done", 100, msg, now
+    db.commit()
+    return RedirectResponse(f"/niches/{niche_id}#step-4", status_code=303)
 
 
 @app.post("/companies/{company_id}/inn", response_class=HTMLResponse)

@@ -137,3 +137,9 @@ dialog.regions .d-foot { padding: 16px 26px 22px; display: flex; gap: 10px; just
   background: #edf0f8; color: var(--navy); white-space: nowrap; }
 .sig.hot { background: var(--yellow); color: var(--navy); }
 .cell-list { font-size: 13px; line-height: 1.45; }
+
+/* шаг 4 */
+ol.howto { margin: 0 0 6px; padding-left: 20px; display: grid; gap: 14px; }
+ol.howto li::marker { font-weight: 800; color: var(--navy); }
+td.neg { color: var(--err); }
+input[type=file] { font: inherit; font-size: 13px; }

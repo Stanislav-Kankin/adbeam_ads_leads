@@ -204,9 +204,68 @@
   {% endif %}
 </div>
 
-{# ---------- Шаги 4–5 — в разработке ---------- #}
-{% set hints = {4: 'Файл ИНН → выгрузка с выручкой и руководителем', 5: 'Excel-таблица и сводка по нише'} %}
-{% for s in steps[3:] %}
+{# ---------- Шаг 4 — Контур.Продажи ---------- #}
+<div class="card step" id="step-4">
+  <div class="step-head"><span class="stepnum">4</span>
+    <div class="grow"><h2>Контур.Продажи</h2><p class="muted small">Выручка, прибыль, руководитель, контакты и статус компании. Склейка по ИНН.</p></div>
+    <span class="badge info">{{ steps[3].count }} из {{ inns_for_kontur|length }} с ИНН</span>
+  </div>
+  {% if not inns_for_kontur %}
+    <div class="empty">Сначала найдите ИНН на шаге 3.</div>
+  {% else %}
+  <ol class="howto">
+    <li><b>Скачайте список ИНН</b> ({{ inns_for_kontur|length }} шт.)
+      <div class="row" style="margin-top:8px">
+        <a class="btn dark sm" href="/niches/{{ niche.id }}/kontur/inns.xlsx">Скачать Excel</a>
+        <button type="button" class="ghost sm" onclick="navigator.clipboard.writeText(document.getElementById('inn-list').value).then(() => this.textContent = 'Скопировано ✓')">Скопировать ИНН</button>
+      </div>
+      <textarea id="inn-list" readonly rows="2" style="margin-top:8px;font-size:12px">{{ inns_for_kontur|map(attribute=0)|join('\n') }}</textarea>
+    </li>
+    <li><b>В Контур.Продажах</b> загрузите список (или вставьте ИНН) и выгрузите результат в Excel.</li>
+    <li><b>Загрузите выгрузку сюда</b>
+      <form method="post" action="/niches/{{ niche.id }}/kontur/upload" enctype="multipart/form-data" class="row" style="margin-top:8px">
+        <input type="file" name="file" accept=".xlsx" required>
+        <button>Загрузить и склеить</button>
+      </form>
+      <span class="muted small">Колонки ищутся по названию, порядок не важен. Компании без ИНН склеятся по сайту, если он есть в выгрузке.</span>
+    </li>
+  </ol>
+  {% endif %}
+  {{ job_box(kontur_job, 'step-4') }}
+
+  {% if kontur_page.total %}
+  <div class="table-wrap" style="margin-top:12px">
+  <table>
+    <thead><tr><th>#</th><th>Компания</th><th class="num">Выручка, млн ₽</th><th class="num">Прибыль, млн ₽</th>
+      <th class="num">Сотр.</th><th>Руководитель</th><th>Контакты из Контура</th></tr></thead>
+    <tbody>
+    {% for r in kontur_page.rows %}{% set c = r.company %}
+    <tr>
+      <td class="muted small">{{ kontur_page.offset + loop.index }}</td>
+      <td class="cell-list"><a class="domain" href="https://{{ c.domain }}" target="_blank" rel="noopener">{{ c.domain }}</a><br>
+        {{ c.kontur_name or c.legal_name or '' }}<br><span class="muted">ИНН {{ c.inn }}{% if c.region %} · {{ c.region }}{% endif %}{% if c.msp %} · МСП: {{ c.msp }}{% endif %}</span>
+        {% if not c.is_active %}<br><span class="badge err" title="{{ c.legal_status }}">{{ c.legal_status[:60] }}</span>{% endif %}
+      </td>
+      <td class="num"><b>{{ (c.revenue / 1e6)|round|int|num if c.revenue is not none else '—' }}</b></td>
+      <td class="num {{ 'neg' if c.profit and c.profit < 0 }}">{{ (c.profit / 1e6)|round|int|num if c.profit is not none else '—' }}</td>
+      <td class="num">{{ c.employees|num }}</td>
+      <td class="cell-list">{{ c.director_name or '—' }}<br><span class="muted">{{ c.director_post or '' }}</span></td>
+      <td class="cell-list">
+        {% for p in (c.kontur_phones or '').split('; ')[:2] if p %}<span class="nowrap">{{ p }}</span><br>{% endfor %}
+        {% for e in (c.kontur_emails or '').split('; ')[:2] if e %}<a href="mailto:{{ e }}">{{ e }}</a><br>{% endfor %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {{ pager(kontur_page, 'p4', 'step-4', per_options, request) }}
+  {% endif %}
+</div>
+
+{# ---------- Шаг 5 — в разработке ---------- #}
+{% set hints = {5: 'Excel-таблица и сводка по нише'} %}
+{% for s in steps[4:] %}
 <div class="card step soon" id="step-{{ s.n }}">
   <div class="step-head"><span class="stepnum">{{ s.n }}</span>
     <div class="grow"><h2>{{ s.title }}</h2><p class="muted small">{{ hints[s.n] }}</p></div>

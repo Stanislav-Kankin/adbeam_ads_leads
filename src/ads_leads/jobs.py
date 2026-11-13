@@ -22,6 +22,7 @@ log = logging.getLogger(__name__)
 
 KIND_COLLECT = "collect_advertisers"
 KIND_CRAWL = "crawl_sites"
+KIND_KONTUR = "kontur_import"
 CRAWL_WORKERS = 8
 
 ClientFactory = Callable[[], KeysoClient]

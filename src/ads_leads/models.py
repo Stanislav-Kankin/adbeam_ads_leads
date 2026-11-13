@@ -95,6 +95,29 @@ class Company(Base):
     metrika_ids: Mapped[str | None] = mapped_column(String(100))
     site_checked_at: Mapped[datetime | None] = mapped_column(DateTime)
 
+    # Контур.Продажи (шаг 4), см. kontur.py
+    kontur_name: Mapped[str | None] = mapped_column(String(500))
+    kpp: Mapped[str | None] = mapped_column(String(20))
+    ogrn: Mapped[str | None] = mapped_column(String(20))
+    reg_date: Mapped[str | None] = mapped_column(String(20))
+    address: Mapped[str | None] = mapped_column(Text)
+    region: Mapped[str | None] = mapped_column(String(200))
+    legal_status: Mapped[str | None] = mapped_column(String(300))
+    msp: Mapped[str | None] = mapped_column(String(50))
+    director_name: Mapped[str | None] = mapped_column(String(300))
+    director_inn: Mapped[str | None] = mapped_column(String(20))
+    director_post: Mapped[str | None] = mapped_column(String(300))
+    kontur_phones: Mapped[str | None] = mapped_column(Text)
+    kontur_emails: Mapped[str | None] = mapped_column(Text)
+    kontur_site: Mapped[str | None] = mapped_column(String(500))
+    okved_main: Mapped[str | None] = mapped_column(String(500))
+    revenue: Mapped[int | None] = mapped_column()  # ₽
+    balance: Mapped[int | None] = mapped_column()
+    profit: Mapped[int | None] = mapped_column()
+    arbitration: Mapped[int | None] = mapped_column()
+    employees: Mapped[int | None] = mapped_column()
+    kontur_loaded_at: Mapped[datetime | None] = mapped_column(DateTime)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -111,6 +134,10 @@ class Company(Base):
     @property
     def phone_list(self) -> list[str]:
         return [s for s in (self.phones or "").split("; ") if s]
+
+    @property
+    def is_active(self) -> bool:
+        return not self.legal_status or self.legal_status.lower().startswith("действующ")
 
     @property
     def ad_budget_month(self) -> int | None:
