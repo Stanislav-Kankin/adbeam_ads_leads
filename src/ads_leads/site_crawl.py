@@ -14,7 +14,7 @@ import time
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from urllib.parse import urljoin, urlparse, urlunparse
+from urllib.parse import unquote, urljoin, urlparse, urlunparse
 
 import httpx
 from selectolax.parser import HTMLParser
@@ -37,6 +37,7 @@ BLOCK_MARKERS = ("ddos-guard", "qrator", "cf-chl", "challenge-platform", "про
                  "if you are not a bot", "доступ ограничен", "bothunt", "система защиты сайта", "access denied",
                  "just a moment", "<title>forbidden</title>")
 
+JSON_ESCAPE_RE = re.compile(r"\\u00[0-9a-fA-F]{2}")
 EMAIL_RE = re.compile(r"(?<![\w.+-])[\w.+-]{2,}@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?![\w.+-])")
 PHONE_RE = re.compile(r"(?:\+7|8)[\s\-().]*\d{3}[\s\-().]*\d{3}[\s\-().]*\d{2}[\s\-().]*\d{2}")
 INN_RE = re.compile(r"ИНН\D{0,25}?(\d{12}|\d{10})(?!\d)", re.IGNORECASE)
@@ -65,7 +66,7 @@ SIGNALS: list[tuple[str, str, tuple[str, ...]]] = [
     ("callibri", "Callibri", ("callibri",)),
     ("mango", "Mango Office", ("mango-office", "mango.office")),
     ("alloka", "Alloka", ("alloka",)),
-    ("alytics", "Alytics", ("alytics",)),
+    ("alytics", "Alytics", ("alytics.ru",)),  # не «alytics»: это подстрока слова «analytics»
     ("bitrix24", "Битрикс24 (CRM)", ("bitrix24", "b24-")),
     ("amocrm", "amoCRM", ("amocrm",)),
 ]
@@ -167,7 +168,12 @@ def _useful_email(email: str, domain: str) -> bool:
 
 def clean_emails(value: str | None) -> list[str]:
     """Для уже сохранённых данных («a@x.ru; b@y.ru»): убираем служебные почты."""
-    return [e for e in (value or "").split("; ") if e and is_useful_email(e)]
+    out = []
+    for e in (value or "").split("; "):
+        e = re.sub(r"^u00[0-9a-f]{2}(?=[a-z])", "", e.strip(), flags=re.I)  # остаток JSON-экранирования
+        if e and is_useful_email(e) and e not in out:
+            out.append(e)
+    return out
 
 
 def clean_phones(value: str | None) -> list[str]:
@@ -329,10 +335,29 @@ def _crawl(domain: str, fetch: Fetcher) -> SiteResult:
     return result
 
 
+def _proxy_url() -> str | None:
+    from ads_leads.config import get_settings
+
+    return get_settings().crawl_proxy.strip() or None
+
+
+def playwright_proxy(url: str | None) -> dict | None:
+    """http://user:pass@host:port → формат Playwright (логин и пароль отдельно)."""
+    if not url:
+        return None
+    u = urlparse(url)
+    proxy = {"server": f"{u.scheme}://{u.hostname}:{u.port}" if u.port else f"{u.scheme}://{u.hostname}"}
+    if u.username:
+        proxy["username"] = unquote(u.username)
+        proxy["password"] = unquote(u.password or "")
+    return proxy
+
+
 def crawl_site(domain: str, *, transport: httpx.BaseTransport | None = None) -> SiteResult:
     """Быстрый обход обычными HTTP-запросами."""
+    proxy = None if transport else _proxy_url()
     with httpx.Client(headers=HEADERS, timeout=TIMEOUT, follow_redirects=True, verify=False,
-                      transport=transport) as client:
+                      transport=transport, proxy=proxy) as client:
 
         def fetch(url: str) -> tuple[Page | None, str | None]:
             try:
@@ -407,7 +432,7 @@ class BrowserCrawler:
                     headless = True  # Xvfb нет — работаем без окна (часть защит не пройдём)
                     self.mode = "без окна (Xvfb не найден)"
             self._browser = self._pw.chromium.launch(
-                headless=headless, env=env,
+                headless=headless, env=env, proxy=playwright_proxy(_proxy_url()),
                 args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"],
             )
         except Exception:
@@ -492,7 +517,9 @@ def _extract(result: SiteResult, pages: list[str]) -> None:
                 for pos, name in page_legal:
                     if abs(pos - m.start()) <= 300:
                         near[name] += 1
-        emails += [e for e in EMAIL_RE.findall(html) if _useful_email(e, result.domain)]
+        # \u003e и подобные экранирования из JSON в скриптах прилипают к адресу: «u003econtact@…»
+        unescaped = JSON_ESCAPE_RE.sub(" ", html)
+        emails += [e for e in EMAIL_RE.findall(unescaped) if _useful_email(e, result.domain)]
         phones += [p for p in (normalize_phone(x) for x in PHONE_RE.findall(text)) if p]
         for a in tree.css("a[href]"):
             href = a.attributes.get("href") or ""

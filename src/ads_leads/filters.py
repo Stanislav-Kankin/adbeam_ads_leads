@@ -33,6 +33,12 @@ EXCLUDED_DOMAINS: dict[str, str] = {
     "joom.com": "маркетплейс", "aliexpress.us": "маркетплейс", "adjust.com": "не по теме",
     "onlinetrade.ru": "маркетплейс", "profi.ru": "сервис услуг", "youdo.com": "сервис услуг",
     "uslugio.com": "сервис услуг", "flowwow.com": "маркетплейс", "kazanexpress.com": "маркетплейс",
+    "trip.com": "не по теме", "adj.st": "не по теме", "vkusvill.ru": "федеральная сеть",
+    "sportmaster.ru": "федеральная сеть",
+    # парфюмерия и косметика: федеральные сети
+    "goldapple.ru": "федеральная сеть", "letu.ru": "федеральная сеть", "iledebeaute.ru": "федеральная сеть",
+    "rivegauche.ru": "федеральная сеть", "magnitcosmetic.ru": "федеральная сеть", "podrygka.ru": "федеральная сеть",
+    "zolotoeyabloko.ru": "федеральная сеть",
 }
 
 

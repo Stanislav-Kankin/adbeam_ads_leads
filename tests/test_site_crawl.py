@@ -72,3 +72,17 @@ def test_fake_contacts_filtered():
     assert is_useful_email("kam-brat@mail.ru") and is_useful_email("zakaz@vodoparad.ru")
     assert clean_emails("info@x.ru; support@beget.com; info@mail.ru") == ["info@x.ru"]
     assert clean_phones("+7 495 255-15-58; +7 333 333-33-33") == ["+7 495 255-15-58"]
+
+
+def test_alytics_not_from_analytics_and_json_emails():
+    from ads_leads.site_crawl import _extract, SiteResult, clean_emails, playwright_proxy
+
+    r = SiteResult(domain="x.ru")
+    _extract(r, ['<script src="https://www.google-analytics.com/a.js"></script>'
+                 '<script>var d={"c":"\u003econtact@x.ru"}</script>'])
+    assert "alytics" not in r.signals and "ga" in r.signals
+    assert r.emails == ["contact@x.ru"]
+    assert clean_emails("u003econtact@x.ru; contact@x.ru") == ["contact@x.ru"]
+    assert playwright_proxy("http://u%40x:p@1.2.3.4:8000") == {"server": "http://1.2.3.4:8000", "username": "u@x",
+                                                               "password": "p"}
+    assert playwright_proxy("") is None

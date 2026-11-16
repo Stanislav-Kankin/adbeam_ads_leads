@@ -22,6 +22,9 @@ class Settings(BaseSettings):
 
     # Сайты с JS-защитой повторно обходить через браузер (Playwright + Chromium)
     browser_fallback: bool = True
+    # Прокси для обхода сайтов (сервер за границей, часть сайтов РФ не пускает иностранные IP).
+    # Формат: http://логин:пароль@хост:порт или socks5://… Пусто — без прокси.
+    crawl_proxy: str = ""
 
     keyso_api_token: str = ""
     keyso_base: str = "msk"  # регион базы Keys.so (Москва)
